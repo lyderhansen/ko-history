@@ -1,0 +1,129 @@
+<dashboard version="2" theme="dark">
+  <label>KO Statistics</label>
+  <definition><![CDATA[
+{
+  "title": "KO Statistics",
+  "description": "Environment-wide knowledge-object statistics \u2014 activity (creation / updates / deletes / moves), usage, and a per-app breakdown by type. (Dashboard Studio)",
+  "defaults": {
+    "tokens": {
+      "default": {
+        "statType": {
+          "value": "views"
+        },
+        "statLabel": {
+          "value": "Dashboards"
+        }
+      }
+    }
+  },
+  "dataSources": {
+    "ds_stats": {
+      "type": "ds.search",
+      "name": "Statistics - activity and usage by type",
+      "options": {
+        "query": "index=\"ko_history\"\n| eval type=coalesce(type, case(match(source,\"views_delete_audit\"),\"views\",match(source,\"reports_and_alerts_delete_audit\"),\"savedsearch\",match(source,\"macros_delete_audit\"),\"macro\",match(source,\"eventtypes_delete_audit\"),\"eventtype\",match(source,\"fieldextractions_delete_audit\"),\"fieldextraction\",match(source,\"lookups_delete_audit\"),\"lookup\",match(source,\"tags_delete_audit\"),\"tag\",1==1,type))\n| eval _audit=if(match(source,\"delete_audit\"),1,0), _usage=if(source=\"ko_usage\",1,0)\n| eval title=coalesce(title,file)\n| stats dc(eval(if(_audit=0 AND _usage=0,title,null()))) as KOs count(eval(if(_audit=0 AND _usage=0,1,null()))) as Versions count(eval(if(lower(method)=\"delete\",1,null()))) as Deletes count(eval(if(lower(method)=\"move\",1,null()))) as Moves sum(eval(if(_usage=1,access_count,0))) as Accesses sum(eval(if(_usage=1,scheduled_runs,0))) as \"Scheduled runs\" max(eval(if(_usage=0,_time,null()))) as _last by type\n| eval _type=type\n| eval Type=case(type=\"views\",\"Dashboard\",type=\"savedsearch\",\"Saved search\",type=\"macro\",\"Macro\",type=\"eventtype\",\"Event type\",type=\"fieldextraction\",\"Field extraction\",type=\"lookup\",\"Lookup\",type=\"tag\",\"Tag\",1==1,type)\n| eval \"Last activity\"=if(isnotnull(_last),strftime(_last,\"%F %T\"),\"\u2014\")\n| fillnull value=0 KOs Versions Deletes Moves Accesses \"Scheduled runs\"\n| table Type KOs Versions Deletes Moves Accesses \"Scheduled runs\" \"Last activity\" _type\n| sort - KOs",
+        "queryParameters": {
+          "earliest": "$tp.earliest$",
+          "latest": "$tp.latest$"
+        }
+      }
+    },
+    "ds_stats_byapp": {
+      "type": "ds.search",
+      "name": "Statistics - per-app breakdown for selected type",
+      "options": {
+        "query": "index=\"ko_history\" NOT source=\"ko_usage\"\n| eval type=coalesce(type, case(match(source,\"views_delete_audit\"),\"views\",match(source,\"reports_and_alerts_delete_audit\"),\"savedsearch\",match(source,\"macros_delete_audit\"),\"macro\",match(source,\"eventtypes_delete_audit\"),\"eventtype\",match(source,\"fieldextractions_delete_audit\"),\"fieldextraction\",match(source,\"lookups_delete_audit\"),\"lookup\",match(source,\"tags_delete_audit\"),\"tag\",1==1,type))\n| search type=\"$statType$\"\n| eval _audit=if(match(source,\"delete_audit\"),1,0)\n| eval title=coalesce(title,file), appName=coalesce(appName,app)\n| fillnull value=\"(no app)\" appName\n| stats dc(eval(if(_audit=0,title,null()))) as KOs count(eval(if(_audit=0,1,null()))) as Versions count(eval(if(lower(method)=\"delete\",1,null()))) as Deletes max(_time) as _last by appName\n| eval \"Last activity\"=if(isnotnull(_last),strftime(_last,\"%F %T\"),\"\u2014\")\n| fields - _last\n| fillnull value=0 KOs Versions Deletes\n| sort - KOs\n| head 100",
+        "queryParameters": {
+          "earliest": "$tp.earliest$",
+          "latest": "$tp.latest$"
+        }
+      }
+    }
+  },
+  "inputs": {
+    "input_time": {
+      "type": "input.timerange",
+      "title": "Time",
+      "options": {
+        "token": "tp",
+        "defaultValue": "0,"
+      }
+    }
+  },
+  "visualizations": {
+    "viz_stats": {
+      "type": "splunk.table",
+      "title": "By KO type \u2014 click a row to break it down by app",
+      "dataSources": {
+        "primary": "ds_stats"
+      },
+      "options": {
+        "drilldown": "row",
+        "showInternalFields": false,
+        "showRowNumbers": false
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.setToken",
+          "options": {
+            "tokens": [
+              {
+                "token": "statType",
+                "key": "row._type.value"
+              },
+              {
+                "token": "statLabel",
+                "key": "row.Type.value"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "viz_stats_byapp": {
+      "type": "splunk.table",
+      "title": "$statLabel$ \u2014 by app",
+      "dataSources": {
+        "primary": "ds_stats_byapp"
+      },
+      "options": {
+        "showRowNumbers": false
+      }
+    }
+  },
+  "layout": {
+    "type": "absolute",
+    "options": {
+      "width": 1920,
+      "height": 900,
+      "display": "auto"
+    },
+    "globalInputs": [
+      "input_time"
+    ],
+    "structure": [
+      {
+        "item": "viz_stats",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "w": 1920,
+          "h": 420
+        }
+      },
+      {
+        "item": "viz_stats_byapp",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 440,
+          "w": 1920,
+          "h": 440
+        }
+      }
+    ]
+  }
+}
+  ]]></definition>
+</dashboard>

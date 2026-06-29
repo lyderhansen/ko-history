@@ -1,0 +1,66 @@
+<dashboard version="2" theme="dark">
+  <label>React Wrapper — Token Test</label>
+  <definition><![CDATA[
+{
+  "title": "React Wrapper — Token Test",
+  "description": "Minimal Dashboard Studio dashboard used to prove the React app-page wrapper can read DS tokens. Exposes a dropdown token (tok_host) and a row-click token (tok_clicked).",
+  "inputs": {
+    "input_host": {
+      "type": "input.dropdown",
+      "title": "Host",
+      "options": {
+        "items": [
+          { "label": "web01", "value": "web01" },
+          { "label": "web02", "value": "web02" },
+          { "label": "db01", "value": "db01" }
+        ],
+        "defaultValue": "web01",
+        "token": "tok_host"
+      }
+    }
+  },
+  "visualizations": {
+    "viz_echo": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "# Token echo\nThese values are what the React wrapper will read.\n\n- **tok_host** = `$tok_host$`\n- **tok_clicked** = `$tok_clicked$`\n\nPick a host above, or click a row in the table below."
+      }
+    },
+    "viz_table": {
+      "type": "splunk.table",
+      "title": "Click a row to set tok_clicked",
+      "dataSources": { "primary": "ds_rows" },
+      "options": { "drilldown": "row" },
+      "eventHandlers": [
+        {
+          "type": "drilldown.setToken",
+          "options": {
+            "tokens": [
+              { "token": "tok_clicked", "key": "row.title.value" },
+              { "token": "tok_clicked_app", "key": "row.app.value" }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "dataSources": {
+    "ds_rows": {
+      "type": "ds.search",
+      "options": {
+        "query": "| makeresults count=3 | streamstats count as n | eval title=case(n==1,\"Network Health\",n==2,\"Service Overview\",1==1,\"Errors\"), app=\"search\" | table title app"
+      }
+    }
+  },
+  "layout": {
+    "type": "absolute",
+    "options": { "width": 1200, "height": 520, "display": "auto" },
+    "globalInputs": ["input_host"],
+    "structure": [
+      { "item": "viz_echo", "type": "block", "position": { "x": 0, "y": 0, "w": 1200, "h": 200 } },
+      { "item": "viz_table", "type": "block", "position": { "x": 0, "y": 210, "w": 1200, "h": 300 } }
+    ]
+  }
+}
+  ]]></definition>
+</dashboard>

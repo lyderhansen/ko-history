@@ -1,0 +1,49 @@
+# Default permissions for the KO History app.
+# Objects are owned by admin and shared at App level (no `export = system`,
+# which would make them global). Read is open to all roles within the app;
+# write is restricted to admin / sc_admin.
+
+[]
+access = read : [ * ], write : [ admin, sc_admin ]
+owner = admin
+
+[savedsearches]
+owner = admin
+access = read : [ * ], write : [ admin, sc_admin ]
+
+[views]
+owner = admin
+access = read : [ * ], write : [ admin, sc_admin ]
+
+[nav]
+owner = admin
+access = read : [ * ], write : [ admin, sc_admin ]
+
+# Custom visualization (dashboard_preview) registered inside this app.
+# Exported system-wide so it appears in the viz picker of dashboards in
+# any app — including Dashboard Studio dashboards outside ko_history.
+# (The viz still writes its preview slots into the ko_history app only.)
+[visualizations]
+owner = admin
+access = read : [ * ], write : [ admin, sc_admin ]
+export = system
+
+[visualizations/dashboard_preview]
+owner = admin
+access = read : [ * ], write : [ admin, sc_admin ]
+export = system
+
+[visualizations/dashboard_preview_ds]
+owner = admin
+access = read : [ * ], write : [ admin, sc_admin ]
+export = system
+
+[visualizations/json_viewer]
+owner = admin
+access = read : [ * ], write : [ admin, sc_admin ]
+export = system
+
+[visualizations/ko_viewer]
+owner = admin
+access = read : [ * ], write : [ admin, sc_admin ]
+export = system

@@ -1,0 +1,15 @@
+{
+  "name": "ko-history-json-viewer-viz",
+  "version": "1.0.0",
+  "description": "Splunk custom viz: renders a KO source (Dashboard Studio JSON or Simple XML) as a syntax-highlighted, line-numbered, foldable listing with a copy button. Sandbox-safe, pure client-side.",
+  "scripts": {
+    "build": "webpack --mode production",
+    "dev": "webpack --mode development --watch"
+  },
+  "devDependencies": {
+    "css-loader": "^6.11.0",
+    "style-loader": "^3.3.4",
+    "webpack": "^5.90.0",
+    "webpack-cli": "^5.1.4"
+  }
+}

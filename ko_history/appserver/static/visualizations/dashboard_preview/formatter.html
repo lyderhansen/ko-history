@@ -1,0 +1,108 @@
+<form class="splunk-formatter-section" section-label="Data">
+
+    <splunk-control-group label="Source Field" help="Column containing the raw dashboard source (XML envelope from eai:data). Required.">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.dataField" value="data">
+        </splunk-text-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Role Field" help="Column that tags each row as baseline or target. If absent, the first row is used as baseline and the last row as target.">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.roleField" value="role">
+        </splunk-text-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Baseline Value" help="Value of the Role Field that marks the OLD version (compared against).">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.baselineValue" value="baseline">
+        </splunk-text-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Target Value" help="Value of the Role Field that marks the NEW version (rendered + highlighted).">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.targetValue" value="target">
+        </splunk-text-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="App Field" help="Column containing the source app (informational, shown in the approval prompt).">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.appField" value="app">
+        </splunk-text-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="App Fallback" help="App label used in the approval prompt when App Field is missing.">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.appDefault" value="search">
+        </splunk-text-input>
+    </splunk-control-group>
+
+</form>
+
+<form class="splunk-formatter-section" section-label="Diff">
+
+    <splunk-control-group label="Highlight Boxes" help="Overlay colored boxes inside the rendered dashboard on added / changed / moved panels. Works for Studio and Classic SXML (same-origin DOM injection).">
+        <splunk-radio-input name="{{VIZ_NAMESPACE}}.showHighlights" value="true">
+            <option value="true">On</option>
+            <option value="false">Off</option>
+        </splunk-radio-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Change List" help="Show the structural change summary in the side drawer (panels added/removed/changed/moved, searches modified).">
+        <splunk-radio-input name="{{VIZ_NAMESPACE}}.showChangeList" value="true">
+            <option value="true">On</option>
+            <option value="false">Off</option>
+        </splunk-radio-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Source Diff" help="Show a line-by-line diff of the two source definitions in the side drawer.">
+        <splunk-radio-input name="{{VIZ_NAMESPACE}}.showSourceDiff" value="false">
+            <option value="true">On</option>
+            <option value="false">Off</option>
+        </splunk-radio-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Blend Overlay (experimental)" help="Onion-skin: render both versions and composite them with difference blend. Writes a SECOND preview slot and needs its own approval. Noisy for live data — use for layout/structure comparison only.">
+        <splunk-radio-input name="{{VIZ_NAMESPACE}}.showBlend" value="false">
+            <option value="true">On</option>
+            <option value="false">Off</option>
+        </splunk-radio-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Highlight Selector (advanced)" help="Optional CSS selector for panel elements inside the iframe, used if the built-in selector ladder misses on your Splunk build. Leave blank for auto-detect.">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.highlightSelector" value="">
+        </splunk-text-input>
+    </splunk-control-group>
+
+</form>
+
+<form class="splunk-formatter-section" section-label="Preview Slot">
+
+    <splunk-control-group label="Target Slot Name" help="View name (inside the dashboard_preview app) used for the TARGET render. Use a unique name per viz instance on the same dashboard.">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.previewSlot" value="dashboard_preview_slot">
+        </splunk-text-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Baseline Slot Name" help="View name used for the BASELINE render — only written when Blend Overlay is On.">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.baselineSlot" value="dashboard_preview_slot_baseline">
+        </splunk-text-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="URL Parameters" help="Query string appended to the iframe URL. Defaults strip all Splunk chrome.">
+        <splunk-text-area name="{{VIZ_NAMESPACE}}.urlParams">hideEdit=true&amp;hideTitle=true&amp;hideFilters=true&amp;hideSplunkBar=true&amp;hideFooter=true&amp;hideAppBar=true&amp;hideChrome=true</splunk-text-area>
+    </splunk-control-group>
+
+</form>
+
+<form class="splunk-formatter-section" section-label="Display">
+
+    <splunk-control-group label="Scale" help="CSS scale factor for the embedded dashboard. Values below 1.0 shrink larger dashboards into smaller panels (e.g. 0.5).">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.scale" value="1.0">
+        </splunk-text-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Background" help="Background color shown around the iframe and the approval overlay.">
+        <splunk-color-picker name="{{VIZ_NAMESPACE}}.background" type="custom" value="transparent">
+            <splunk-color>transparent</splunk-color>
+            <splunk-color>#0b0c10</splunk-color>
+            <splunk-color>#111317</splunk-color>
+            <splunk-color>#1a1a2e</splunk-color>
+            <splunk-color>#ffffff</splunk-color>
+            <splunk-color>#f5f5f5</splunk-color>
+        </splunk-color-picker>
+    </splunk-control-group>
+
+</form>

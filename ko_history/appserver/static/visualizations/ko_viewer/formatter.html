@@ -1,0 +1,41 @@
+<form class="splunk-formatter-section" section-label="Data configurations">
+
+    <splunk-control-group label="Title Field" help="Result column holding the KO title/name. Default: title.">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.titleField" value="title">
+        </splunk-text-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="App Field" help="Result column holding the app name. Default: appName (falls back to app).">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.appField" value="appName">
+        </splunk-text-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Type Field" help="Result column naming the KO type. 'savedsearch' renders the bespoke report/alert profile; anything else renders the generic record card. Default: type.">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.typeField" value="type">
+        </splunk-text-input>
+    </splunk-control-group>
+
+</form>
+
+<form class="splunk-formatter-section" section-label="Data display">
+
+    <splunk-control-group label="Copy SPL button" help="Show a Copy button on the SPL block.">
+        <splunk-radio-input name="{{VIZ_NAMESPACE}}.showCopy" value="true">
+            <option value="true">On</option>
+            <option value="false">Off</option>
+        </splunk-radio-input>
+    </splunk-control-group>
+
+</form>
+
+<form class="splunk-formatter-section" section-label="Color and style">
+
+    <splunk-control-group label="Theme" help="Color scheme. Auto follows the dashboard's theme.">
+        <splunk-radio-input name="{{VIZ_NAMESPACE}}.themeMode" value="auto">
+            <option value="auto">Auto</option>
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+        </splunk-radio-input>
+    </splunk-control-group>
+
+</form>

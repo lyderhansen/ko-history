@@ -1,0 +1,142 @@
+<dashboard version="2" theme="dark">
+  <label>Help &amp; Dependencies</label>
+  <definition><![CDATA[
+{
+  "title": "KO History \u2014 Help & Dependencies",
+  "description": "How the wrapper, the ko_version_ds dashboard, the index, the saved searches and the custom visualizations depend on each other.",
+  "dataSources": {},
+  "inputs": {},
+  "visualizations": {
+    "md_overview": {
+      "type": "splunk.markdown",
+      "name": "md_overview",
+      "options": {
+        "markdown": "# KO History \u2014 how the pieces fit together\n\n**KO History** captures and versions Splunk knowledge objects (dashboards,\nreports, alerts) into a summary index so you can audit changes and recover\ncontent after accidental deletes, overwrites, or moves.\n\nThis page is a map of the app's moving parts and, importantly, **what depends on\nwhat** \u2014 read it before renaming a view, moving the index, or changing the\ndashboard's selection markers.\n\n| Piece | Type | Role |\n|---|---|---|\n| `wrapper` | React app page (Mako) | The home page. Embeds `ko_version_ds`, drives preview / compare / **restore**. |\n| `ko_version_ds` | Dashboard Studio | The actual data UI: filters, KPIs, KO table, version list, textual diff, **source viewer**. |\n| `ko_version` | Simple XML | Legacy/alternate dashboard; SXML live-render preview via `dashboard_preview`. |\n| `index=ko_history` | summary index | Append-only version log. Everything reads from here. |\n| saved searches | 4 stanzas | Populate the index (backup + delete-audit, for views and reports/alerts). |\n| custom viz `json_viewer` | bundled viz | Foldable, syntax-highlighted KO source. Used in `ko_version_ds` **and** (its logic) in the wrapper. |\n| custom viz `dashboard_preview` / `_ds` | bundled viz | Live/schematic dashboard render for the SXML and DS hosts. |\n"
+      }
+    },
+    "md_dependency": {
+      "type": "splunk.markdown",
+      "name": "md_dependency",
+      "options": {
+        "markdown": "## Dependency map\n\n```\n                 saved searches (cron)\n                          \u2502  write one event per KO version / mutation\n                          \u25bc\n                  index = ko_history          \u2190 the single source of truth\n                          \u2502\n        \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n        \u25bc                 \u25bc                           \u25bc\n  ko_version_ds      ko_version (SXML)         wrapper (React page)\n  (Dashboard Studio)                           reads the index directly\n        \u2502                                        via authenticated REST\n        \u2502  embedded in an iframe \u25c4\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n        \u2502                                        and iframes ko_version_ds\n        \u251c\u2500 json_viewer viz (source of selected version)\n        \u2514\u2500 dashboard_preview_ds viz (schematic)\n```\n\n- **The index is the contract.** All three UIs read `index=ko_history`. If you\n  rename or relocate it, update `KO_INDEX` in `src/util/splunkRest.js` *and* the\n  `index=\"ko_history\"` literals in the dashboard generators.\n- **Saved-search `source` values are the discriminator.** The `koType` dropdown\n  uses `ko_views_xml_backup`, `ko_reports_and_alerts_backup` (the per-type backup\n  searches) and the combined `ko_all_delete_audit` (which replaced the former\n  per-type `ko_views_delete_audit` / `ko_reports_and_alerts_delete_audit` sources\n  in commit 6e6db59). Renaming a saved search means updating every\n  `source IN (\u2026)` clause.\n"
+      }
+    },
+    "md_contract": {
+      "type": "splunk.markdown",
+      "name": "md_contract",
+      "options": {
+        "markdown": "## The wrapper \u2194 ko_version_ds contract (read this before editing either)\n\nThe React **wrapper** does not re-implement the data UI \u2014 it **embeds\n`ko_version_ds` in a same-origin iframe** and communicates with it through two\none-way channels. Break either channel and the wrapper goes inert.\n\n**1. Selection flows dashboard \u2192 wrapper via two marker panels.**\n`ko_version_ds` has two markdown panels for this:\n\n> `viz_link_label` (human, display only): `Selected: <title> \u00b7 app: <app> \u00b7 type: <type> \u00b7 previous: <time>`\n>\n> `viz_link` (machine, parsed by wrapper, **invisible** \u2014 fontColor transparent):\n> `kohist-sel: <title> \u27ea|\u27eb <app> \u27ea|\u27eb <type> \u27ea|\u27eb <time>`\n\nThe wrapper reads the `kohist-sel:` line when you **click** inside the embedded\ndashboard (a few delayed reads catch DS's async token update), plus a 5-second\nsafety heartbeat that also re-attaches the click listener after iframe reloads.\nIt falls back to the legacy `Selected: \u2026 \u27ea|\u27eb \u2026` format if the new line is absent\n(stale dashboard, new wrapper). **If you delete the `viz_link` panel, rename the\ntoken names (`link_title`, `link_app`, `time`), or change the `kohist-sel:`\nprefix, the wrapper stops detecting selections.**\n\n**2. Preview / compare / restore flow wrapper \u2192 Splunk via REST.**\nThe wrapper writes dashboard source into **scratch \"slot\" views** in *this* app\nand then iframes them:\n\n- `kohist_cmp_baseline_<user>`, `kohist_cmp_target_<user>` \u2014 the compare modal's two render slots (suffixed with the sanitized current username since 0.1.93; falls back to unsuffixed when unavailable).\n- Restore writes a **real** view into the app you pick (default = origin).\n\nThis needs **write access to `data/ui/views` in `ko_history`** for the viewing\nuser. `metadata/default.meta` grants write to `admin, sc_admin`. **Do not broaden\nthe `[views]` write stanza** \u2014 the vizs export as `system`, so that grant becomes a\nview create/overwrite primitive reachable from any dashboard, gated only by a\nclient-side prompt. The browser approval prompt is convenience, **not** security \u2014\nSplunk RBAC is the real gate.\n\n**3. The app id must stay `ko_history` (underscore).** The React Mako page cannot\nlive under a hyphenated app id. Renaming the app breaks `PREVIEW_APP` /\n`KO_INDEX` and the iframe URLs.\n"
+      }
+    },
+    "md_react": {
+      "type": "splunk.markdown",
+      "name": "md_react",
+      "options": {
+        "markdown": "## The React wrapper page \u2014 what it is & how it points at the dashboard\n\nThe home page `wrapper` is **not** a dashboard. It's a Splunk **Mako template +\nwebpack-bundled React app** (`@splunk/react-page`), served at\n`/app/ko_history/wrapper`. Source lives in `ko_history/src/` (entry\n`pages/wrapper/index.jsx` \u2192 `components/WrapperApp.jsx`); `build.sh` compiles it\nto `appserver/static/pages/wrapper.js`. It runs with the **user's real session**\n(cookies + CSRF), which is the whole reason it can do authenticated REST and\nsame-origin iframes that a sandboxed DS custom viz cannot.\n\n### How it references `ko_version_ds`\n\nIt **embeds the dashboard in a same-origin `<iframe>`**. The URL is built in\n`WrapperApp.jsx` (the `dashUrl` memo):\n\n```\n/<locale>/app/ko_history/ko_version_ds\n    ?hideEdit=true&hideTitle=true&hideChrome=true\n    &hideSplunkBar=true&hideAppBar=true&hideFooter=true\n```\n\n- `<locale>` is read from the current page URL (e.g. `en-US`, `en-GB`) \u2014 not hardcoded.\n- The app segment comes from the constant **`PREVIEW_APP` (`ko_history`)** in\n  `src/util/splunkRest.js`.\n- The **view id `ko_version_ds` is a string literal** in `dashUrl`.\n- The `hide*` query params strip all Splunk chrome so only the dashboard body shows.\n\n### Can the reference be changed / updated?\n\nYes \u2014 but it is a **compile-time constant in the bundle, not a runtime setting**.\nThere is no setup screen and no `.conf` knob for it. To change it:\n\n| To change\u2026 | Edit | Then |\n|---|---|---|\n| Which dashboard is embedded | the `ko_version_ds` literal in `dashUrl` (`WrapperApp.jsx`) | `./build.sh` + reinstall + **full restart** |\n| Which app it lives in | `PREVIEW_APP` in `src/util/splunkRest.js` (also moves slots/REST target \u2014 only when renaming the whole app) | `./build.sh` + reinstall + **full restart** |\n| What chrome is hidden | the `chrome` string in `dashUrl` (and `previewUrl`) | rebuild |\n\nBecause the embed target is baked into `wrapper.js`, **editing the dashboard XML\non disk and reloading is not enough for wrapper changes** \u2014 the static bundle\nneeds a rebuild and a full `splunk restart` (a reload won't refresh it).\n\n### The authenticated REST endpoints the wrapper calls\n\nAll same-origin, under `/<locale>/splunkd/__raw/servicesNS/nobody/<app>/\u2026`, with\nthe `splunkweb_csrf_token` cookie echoed as `X-Splunk-Form-Key`:\n\n- **Read versions / list apps** \u2014 `search/jobs` oneshot against `index=ko_history`.\n- **Compare** \u2014 POST `eai:data` to scratch slot views `kohist_cmp_baseline_<user>` /\n  `kohist_cmp_target_<user>` in `ko_history`, then iframe them (chrome-stripped, cache-busted).\n  Slot names are suffixed with the sanitized current username (since 0.1.93) so\n  concurrent compares by different users don't overwrite each other's slots.\n- **Restore** \u2014 POST `eai:data` to `data/ui/views/<name>` in the **app you choose**\n  (writes a real dashboard; 403 = you lack write on that app).\n\nSo the wrapper depends on `ko_version_ds` for the *embedded UI + selection\nsignal*, and on the *index + its own write access* for compare/restore \u2014 these\nare two independent dependencies, documented above and in the contract section.\n\n"
+      }
+    },
+    "md_rest": {
+      "type": "splunk.markdown",
+      "name": "md_rest",
+      "options": {
+        "markdown": "## The dashboard REST API \u2014 two layers (and why KO History exists)\n\nSplunk exposes dashboards through two distinct REST layers. The distinction is\nthe whole basis for this app. **See the live *REST API Explorer* page** in this\napp's nav \u2014 it queries both layers against your instance.\n\n### Layer 1 \u2014 `\u2026/data/ui/views` (BOTH formats)\n`servicesNS/{owner}/{app}/data/ui/views` is **format-agnostic**: every view is a\nrow, whether it's Dashboard Studio (`<dashboard version=\"2\">`) or Classic Simple\nXML (`<dashboard>` / `<form>`). Create / read / update / delete all behave the\nsame; the format lives in the `eai:data` envelope. Verified live on a Splunk\n10.4 instance: a single call returned **261 views = 153 DS + 108 Simple XML**.\n**KO History uses this endpoint** for snapshot backups, the compare preview\nslots, and one-click restore \u2014 which is exactly why it works for both formats.\n\n### Layer 2 \u2014 `\u2026/data/ui/views/{name}/history` & `/revision` (Dashboard Studio only)\nNative dashboard **version history** is a Dashboard Studio feature (Splunk 10.x).\nIts REST surface applies **only to Studio dashboards**, captures a version **only\non explicit save**, stores history **with** the dashboard (delete it \u2192 history is\ngone), and is gated (single search head; not on FIPS-mode Windows). Simple XML\nhas no native revisions. Evidence: the standard view entry advertises links\n`_reload / alternate / edit / list / disable / move / remove` \u2014 **no `history` or\n`revision` link** \u2014 so it's a separate, DS-only surface.\n\n### The gap KO History fills\nFull CRUD exists for both formats, but **native versioning covers only DS, only\non save, stored with the object.** KO History versions **Simple XML too** (plus\nreports/alerts) via periodic snapshots into `index=ko_history` that **survive\ndeletion** and **restore to any app**.\n\n*(`| rest` is a normal search command in Splunk Web; it's only blocked in the\nproject's MCP allowlist, so the Explorer page's panels run fine.)*\n\n"
+      }
+    },
+    "md_viz": {
+      "type": "splunk.markdown",
+      "name": "md_viz",
+      "options": {
+        "markdown": "## Custom visualizations & the DS sandbox\n\nDashboard Studio runs every custom visualization in a **sandboxed iframe** \u2014 no\ncookies, no authenticated fetch, no child iframes. That single fact shapes the\nwhole design:\n\n- **`json_viewer`** \u2014 pure client-side formatting of a source string. Sandbox-safe,\n  so it runs natively inside `ko_version_ds` (the *Source of selected version*\n  panel) and its logic is reused client-side in the wrapper's **Source** compare\n  tab. Reads columns `data` / `title` / `app`.\n- **`dashboard_preview`** (SXML) \u2014 live render via write-then-iframe; only works\n  in Simple XML, where same-origin iframes are allowed.\n- **`dashboard_preview_ds`** \u2014 schematic render for the DS host (no live data in\n  the sandbox).\n- **The wrapper exists** precisely because it is *not* sandboxed: as a real app\n  page it has the user's session, so it can do authenticated REST and same-origin\n  iframes (live preview, restore) that a DS custom viz never could.\n\nAll three vizs are `export = system` in `metadata/default.meta` so they appear in\nthe viz picker. The viz type is `<app>.<viz>` \u2192 e.g. `ko_history.json_viewer`.\n"
+      }
+    },
+    "md_install": {
+      "type": "splunk.markdown",
+      "name": "md_install",
+      "options": {
+        "markdown": "## Install & rebuild notes\n\n- **Deploy = tarball only.** `./build.sh` at the repo root builds the custom-viz\n  bundles + the React page and packages `dist/ko-history-<version>.tar.gz`.\n  Install that tarball; do **not** hand-edit files inside a running Splunk.\n- **Full restart for the React bundle.** Changes to the wrapper's static bundle\n  need a full `splunk restart` (a reload is not enough) plus a hard browser\n  refresh.\n- **Regenerate dashboards** after editing their generators:\n  `python3 tools/gen_ko_version_ds.py` and `python3 tools/gen_ko_help.py`.\n- **This page** is generated by `tools/gen_ko_help.py` \u2014 edit the markdown there,\n  not the committed XML.\n"
+      }
+    }
+  },
+  "layout": {
+    "type": "absolute",
+    "options": {
+      "width": 1280,
+      "height": 3960,
+      "display": "auto"
+    },
+    "structure": [
+      {
+        "item": "md_overview",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "w": 1280,
+          "h": 520
+        }
+      },
+      {
+        "item": "md_dependency",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 540,
+          "w": 1280,
+          "h": 560
+        }
+      },
+      {
+        "item": "md_contract",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 1120,
+          "w": 1280,
+          "h": 640
+        }
+      },
+      {
+        "item": "md_react",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 1780,
+          "w": 1280,
+          "h": 760
+        }
+      },
+      {
+        "item": "md_rest",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 2560,
+          "w": 1280,
+          "h": 700
+        }
+      },
+      {
+        "item": "md_viz",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 3280,
+          "w": 1280,
+          "h": 420
+        }
+      },
+      {
+        "item": "md_install",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 3720,
+          "w": 1280,
+          "h": 260
+        }
+      }
+    ]
+  }
+}
+  ]]></definition>
+</dashboard>

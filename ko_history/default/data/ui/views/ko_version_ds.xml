@@ -1,0 +1,2287 @@
+<dashboard version="2" theme="dark">
+  <label>KO Version (Studio)</label>
+  <definition><![CDATA[
+{
+  "title": "KO Version",
+  "description": "Audit and recover dashboards, reports and alerts by browsing version history captured in index=ko_history. (Dashboard Studio)",
+  "defaults": {
+    "tokens": {
+      "default": {
+        "koType": {
+          "value": "*"
+        },
+        "ko_class": {
+          "value": "dashboard"
+        },
+        "showDrilldown": {
+          "value": "0"
+        },
+        "ko_realtype": {
+          "value": ""
+        },
+        "link_title": {
+          "value": "\u2014"
+        },
+        "link_app": {
+          "value": "\u2014"
+        },
+        "time": {
+          "value": ""
+        }
+      }
+    }
+  },
+  "expressions": {
+    "conditions": {
+      "cond_views": {
+        "name": "type is views or all",
+        "value": "$koType$ = \"views\" or $koType$ = \"*\""
+      },
+      "cond_reports": {
+        "name": "type is reports and alerts",
+        "value": "$koType$ = \"savedsearch\""
+      },
+      "cond_macros": {
+        "name": "type is macros",
+        "value": "$koType$ = \"macro\""
+      },
+      "cond_eventtypes": {
+        "name": "type is event types",
+        "value": "$koType$ = \"eventtype\""
+      },
+      "cond_fieldextractions": {
+        "name": "type is field extractions",
+        "value": "$koType$ = \"fieldextraction\""
+      },
+      "cond_lookups": {
+        "name": "type is lookups",
+        "value": "$koType$ = \"lookup\""
+      },
+      "cond_tags": {
+        "name": "type is tags",
+        "value": "$koType$ = \"tag\""
+      },
+      "cond_is_dashboard": {
+        "name": "selected KO is a dashboard",
+        "value": "$ko_realtype$ = \"views\""
+      },
+      "cond_is_savedsearch": {
+        "name": "selected KO is a saved search",
+        "value": "$ko_realtype$ = \"savedsearch\""
+      },
+      "cond_is_generic": {
+        "name": "selected KO is generic - macro or event type",
+        "value": "$ko_realtype$ != \"views\" and $ko_realtype$ != \"savedsearch\" and $ko_realtype$ != \"\""
+      },
+      "cond_is_not_dashboard": {
+        "name": "selected KO is not a dashboard",
+        "value": "$ko_realtype$ != \"views\" and $ko_realtype$ != \"\""
+      },
+      "cond_has_selection": {
+        "name": "a KO is selected",
+        "value": "$ko_realtype$ != \"\""
+      },
+      "cond_open_views": {
+        "name": "open link type is views",
+        "value": "$ko_realtype$ = \"views\""
+      },
+      "cond_open_savedsearch": {
+        "name": "open link type is savedsearch",
+        "value": "$ko_realtype$ = \"savedsearch\""
+      },
+      "cond_open_eventtype": {
+        "name": "open link type is eventtype",
+        "value": "$ko_realtype$ = \"eventtype\""
+      },
+      "cond_open_macro": {
+        "name": "open link type is macro",
+        "value": "$ko_realtype$ = \"macro\""
+      },
+      "cond_open_fieldextraction": {
+        "name": "open link type is fieldextraction",
+        "value": "$ko_realtype$ = \"fieldextraction\""
+      },
+      "cond_open_lookup": {
+        "name": "open link type is lookup",
+        "value": "$ko_realtype$ = \"lookup\""
+      },
+      "cond_open_tag": {
+        "name": "open link type is tag",
+        "value": "$ko_realtype$ = \"tag\""
+      }
+    }
+  },
+  "dataSources": {
+    "ds_base": {
+      "type": "ds.search",
+      "name": "Base - KO version history",
+      "options": {
+        "query": "index=\"ko_history\" NOT source=\"ko_usage\"\n| eval type=coalesce(type, case(match(source,\"views_delete_audit\"),\"views\",match(source,\"reports_and_alerts_delete_audit\"),\"savedsearch\",match(source,\"macros_delete_audit\"),\"macro\",match(source,\"eventtypes_delete_audit\"),\"eventtype\",match(source,\"fieldextractions_delete_audit\"),\"fieldextraction\",match(source,\"lookups_delete_audit\"),\"lookup\",match(source,\"tags_delete_audit\"),\"tag\",1==1,type))\n| search type=\"$koType$\"\n| rex field=uri \"\\/en-\\w\\w\\/splunkd\\/__raw\\/servicesNS\\/.*?\\/(?<appName>.+?)\\/\"\n| rex field=uri \"/servicesNS/.*?\\/(?<appName>.*?)/data/ui/views/\"\n| rex field=uri \"/servicesNS/[^/]+/(?<app_uri>[^/]+)/\"\n| rex \"(?<method>updated)\"\n| rex mode=sed field=file \"s/%20/ /g\"\n| rex mode=sed field=file \"s/%3A/:/g\"\n| rex mode=sed field=file \"s/%21/!/g\"\n| rex mode=sed field=file \"s/%28/(/g\"\n| rex mode=sed field=file \"s/%29/)/g\"\n| eval title = coalesce(title,file,dashboard), appName=coalesce(appName,app,app_uri)\n| rex mode=sed field=title \"s/%3A/:/g\"\n| eval ko_format=if(isnotnull(data) AND match(data,\"<definition\"),\"Dashboard Studio\",if(isnotnull(data),\"Simple XML\",\"n/a\"))\n| fields - data\n| table now _time updated title config_type type sharing owner method source description appName ko_format actions action.email.message.alert action.email.to action.email.cc alert.expires alert.severity next_scheduled_time is_scheduled cron_schedule disabled alert_type search label userName\n| eval time=strftime(_time,\"%F %T\"), history=time.\" - \".method\n| stats latest(_time) as _time latest(method) as latestMethod latest(sharing) as latestSharing latest(ko_format) as ko_format values(*) as * by title appName\n| search title=*\n| table _time updated title config_type type sharing latestSharing owner method latestMethod history ko_format source description appName actions action.email.message.alert action.email.to action.email.cc alert.expires alert.severity next_scheduled_time is_scheduled cron_schedule disabled alert_type search label userName",
+        "queryParameters": {
+          "earliest": "$tp.earliest$",
+          "latest": "$tp.latest$"
+        }
+      }
+    },
+    "ds_users": {
+      "type": "ds.chain",
+      "name": "Filter options - users",
+      "options": {
+        "extend": "ds_base",
+        "query": "| stats c by owner"
+      }
+    },
+    "ds_apps": {
+      "type": "ds.chain",
+      "name": "Filter options - apps",
+      "options": {
+        "extend": "ds_base",
+        "query": "| search label=\"$searchForDashboard$\" OR title=\"$searchForDashboard$\" owner=\"$selectUser$\"\n| stats c by appName"
+      }
+    },
+    "ds_total": {
+      "type": "ds.chain",
+      "name": "KPI - total KOs",
+      "options": {
+        "extend": "ds_base",
+        "query": "| search label=\"$searchForDashboard$\" OR title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| stats c"
+      }
+    },
+    "ds_top10": {
+      "type": "ds.chain",
+      "name": "KPI - top 10 apps",
+      "options": {
+        "extend": "ds_base",
+        "query": "| search method!=\"delete\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| chart dc(title) as dc over appName by type\n| addtotals\n| sort 10 - Total\n| fields - Total"
+      }
+    },
+    "ds_deleted": {
+      "type": "ds.chain",
+      "name": "KPI - deleted count",
+      "options": {
+        "extend": "ds_base",
+        "query": "| search owner=\"$selectUser$\"\n| search latestMethod=\"DELETE\"\n| stats c"
+      }
+    },
+    "ds_apps_kpi": {
+      "type": "ds.chain",
+      "name": "KPI - distinct apps",
+      "options": {
+        "extend": "ds_base",
+        "query": "| search appName=\"$selectApp$\" owner=\"$selectUser$\"\n| stats dc(appName) as apps"
+      }
+    },
+    "ds_changed7d": {
+      "type": "ds.chain",
+      "name": "KPI - changed last 7d",
+      "options": {
+        "extend": "ds_base",
+        "query": "| search appName=\"$selectApp$\" owner=\"$selectUser$\"\n| where _time>relative_time(now(),\"-7d\")\n| stats c"
+      }
+    },
+    "ds_private": {
+      "type": "ds.chain",
+      "name": "KPI - private KOs",
+      "options": {
+        "extend": "ds_base",
+        "query": "| search appName=\"$selectApp$\" owner=\"$selectUser$\"\n| search latestSharing=\"user\"\n| stats c"
+      }
+    },
+    "ds_moved": {
+      "type": "ds.chain",
+      "name": "KPI - moved count",
+      "options": {
+        "extend": "ds_base",
+        "query": "| search appName=\"$selectApp$\" owner=\"$selectUser$\"\n| search latestMethod=\"MOVE\"\n| stats c"
+      }
+    },
+    "ds_versions_kpi": {
+      "type": "ds.search",
+      "name": "KPI - versions captured",
+      "options": {
+        "query": "index=\"ko_history\" NOT source=\"ko_usage\"\n| eval type=coalesce(type, case(match(source,\"views_delete_audit\"),\"views\",match(source,\"reports_and_alerts_delete_audit\"),\"savedsearch\",match(source,\"macros_delete_audit\"),\"macro\",match(source,\"eventtypes_delete_audit\"),\"eventtype\",match(source,\"fieldextractions_delete_audit\"),\"fieldextraction\",match(source,\"lookups_delete_audit\"),\"lookup\",match(source,\"tags_delete_audit\"),\"tag\",1==1,type))\n| search type=\"$koType$\"\n| search NOT source=\"*delete_audit*\"\n| eval title=coalesce(title,file), appName=coalesce(appName,app)\n| search appName=\"$selectApp$\" owner=\"$selectUser$\"\n| stats c",
+        "queryParameters": {
+          "earliest": "$tp.earliest$",
+          "latest": "$tp.latest$"
+        }
+      }
+    },
+    "ds_withhistory": {
+      "type": "ds.search",
+      "name": "KPI - KOs with history",
+      "options": {
+        "query": "index=\"ko_history\" NOT source=\"ko_usage\"\n| eval type=coalesce(type, case(match(source,\"views_delete_audit\"),\"views\",match(source,\"reports_and_alerts_delete_audit\"),\"savedsearch\",match(source,\"macros_delete_audit\"),\"macro\",match(source,\"eventtypes_delete_audit\"),\"eventtype\",match(source,\"fieldextractions_delete_audit\"),\"fieldextraction\",match(source,\"lookups_delete_audit\"),\"lookup\",match(source,\"tags_delete_audit\"),\"tag\",1==1,type))\n| search type=\"$koType$\"\n| search NOT source=\"*delete_audit*\"\n| eval title=coalesce(title,file), appName=coalesce(appName,app)\n| search appName=\"$selectApp$\" owner=\"$selectUser$\"\n| stats count as v by title appName\n| where v>1\n| stats c",
+        "queryParameters": {
+          "earliest": "$tp.earliest$",
+          "latest": "$tp.latest$"
+        }
+      }
+    },
+    "ds_mostchanged": {
+      "type": "ds.search",
+      "name": "KPI - most-changed KOs",
+      "options": {
+        "query": "index=\"ko_history\" NOT source=\"ko_usage\"\n| eval type=coalesce(type, case(match(source,\"views_delete_audit\"),\"views\",match(source,\"reports_and_alerts_delete_audit\"),\"savedsearch\",match(source,\"macros_delete_audit\"),\"macro\",match(source,\"eventtypes_delete_audit\"),\"eventtype\",match(source,\"fieldextractions_delete_audit\"),\"fieldextraction\",match(source,\"lookups_delete_audit\"),\"lookup\",match(source,\"tags_delete_audit\"),\"tag\",1==1,type))\n| search type=\"$koType$\"\n| search NOT source=\"*delete_audit*\"\n| eval title=coalesce(title,file), appName=coalesce(appName,app)\n| search appName=\"$selectApp$\" owner=\"$selectUser$\"\n| stats count as Versions by title appName\n| sort - Versions\n| head 8\n| rename title as KO appName as App\n| table KO App Versions",
+        "queryParameters": {
+          "earliest": "$tp.earliest$",
+          "latest": "$tp.latest$"
+        }
+      }
+    },
+    "ds_table": {
+      "type": "ds.chain",
+      "name": "Main - dashboards table",
+      "options": {
+        "extend": "ds_base",
+        "query": "| search label=\"$searchForDashboard$\" OR title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval type=case(type=\"views\" AND ko_format=\"Dashboard Studio\",\"Dashboard (Studio)\",type=\"views\" AND ko_format=\"Simple XML\",\"Dashboard (Simple XML)\",type=\"views\",\"Dashboard\",type=\"savedsearch\",\"Saved search\",type=\"macro\",\"Macro\",type=\"eventtype\",\"Event type\",type=\"fieldextraction\",\"Field extraction\",type=\"lookup\",\"Lookup\",type=\"tag\",\"Tag\",isnotnull(type),type,1==1,\"Dashboard\")\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title type owner appName latestSharing latestMethod history _rtype _kclass"
+      }
+    },
+    "ds_table_reports": {
+      "type": "ds.chain",
+      "name": "Main - reports and alerts table",
+      "options": {
+        "extend": "ds_base",
+        "query": "| search title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval scheduled=case(is_scheduled=\"1\",\"Scheduled\",is_scheduled=\"0\",\"Manual\",1==1,\"n/a\")\n| eval kind=case(isnotnull(alert_type) AND alert_type!=\"always\" AND alert_type!=\"n/a\",\"Alert\",scheduled=\"Scheduled\",\"Scheduled report\",1==1,\"Saved search\")\n| eval severity='alert.severity'\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title owner appName latestSharing kind scheduled cron_schedule severity actions latestMethod history _rtype _kclass"
+      }
+    },
+    "ds_table_macros": {
+      "type": "ds.chain",
+      "name": "Main - macros table",
+      "options": {
+        "extend": "ds_base",
+        "query": "| search title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title owner appName latestSharing latestMethod history _rtype _kclass"
+      }
+    },
+    "ds_table_eventtypes": {
+      "type": "ds.chain",
+      "name": "Main - event types table",
+      "options": {
+        "extend": "ds_base",
+        "query": "| search title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title owner appName latestSharing latestMethod history _rtype _kclass"
+      }
+    },
+    "ds_table_fieldextractions": {
+      "type": "ds.chain",
+      "name": "Main - field extractions table",
+      "options": {
+        "extend": "ds_base",
+        "query": "| search title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title owner appName latestSharing latestMethod history _rtype _kclass"
+      }
+    },
+    "ds_table_lookups": {
+      "type": "ds.chain",
+      "name": "Main - lookups table",
+      "options": {
+        "extend": "ds_base",
+        "query": "| search title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title owner appName latestSharing latestMethod history _rtype _kclass"
+      }
+    },
+    "ds_table_tags": {
+      "type": "ds.chain",
+      "name": "Main - tags table",
+      "options": {
+        "extend": "ds_base",
+        "query": "| search title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title owner appName latestSharing latestMethod history _rtype _kclass"
+      }
+    },
+    "ds_dataview": {
+      "type": "ds.search",
+      "name": "Drilldown - raw source by title",
+      "options": {
+        "query": "index=\"ko_history\" NOT source=\"ko_usage\" title=\"$drilldownTitle$\"\n| eval appName=coalesce(appName,app)\n| where type=\"$ko_realtype$\" AND appName=\"$link_app$\"\n| rex mode=sed \"s/^.*?data=\\\"//\"\n| rex mode=sed \"s/\\\", type=views[\\s\\S]*//\"\n| eval _raw=replace(_raw,\"\\\\\\\\(.)\",\"\\1\")\n| table _time _raw label\n| sort - _time",
+        "queryParameters": {
+          "earliest": "$tp.earliest$",
+          "latest": "$tp.latest$"
+        }
+      }
+    },
+    "ds_versions": {
+      "type": "ds.chain",
+      "name": "Drilldown - version list",
+      "options": {
+        "extend": "ds_dataview",
+        "query": "| eval _epoch=_time\n| streamstats count as vn\n| eval version_no=if(vn=1,\"#\".vn.\" (latest)\",\"#\".vn)\n| eval version_time=strftime(_time,\"%F %T\")\n| eval ko_format=if(match(_raw,\"<definition\"),\"Dashboard Studio\",\"Simple XML\")\n| fillnull value=\"\u2014\" label\n| fields version_no version_time label ko_format _epoch\n| fields - _time"
+      }
+    },
+    "ds_versions_ss": {
+      "type": "ds.search",
+      "name": "Drilldown - saved-search version list",
+      "options": {
+        "query": "index=\"ko_history\" NOT source=\"ko_usage\" title=\"$drilldownTitle$\"\n| eval appName=coalesce(appName,app)\n| where type=\"$ko_realtype$\" AND appName=\"$link_app$\"\n| sort - _time\n| streamstats count as vn\n| eval version_no=if(vn=1,\"#\".vn.\" (latest)\",\"#\".vn)\n| eval version_time=strftime(_time,\"%F %T\")\n| eval _epoch=_time\n| eval _audit=if(isnull('search') OR 'search'=\"\",1,0)\n| eval schedule=case(_audit=1,\"\u2014\", 'is_scheduled'=1,coalesce(cron_schedule,\"\u2014\"), true(),\"Not scheduled\")\n| eval state=case(_audit=1,upper(coalesce(method,\"change\")), disabled=1,\"Disabled\", true(),\"Enabled\")\n| eval actions=case(_audit=1,\"\u2014\", isnull(actions) OR actions=\"\",\"\u2014\", true(),actions)\n| fields version_no version_time schedule state actions _epoch\n| fields - _time",
+        "queryParameters": {
+          "earliest": "$tp.earliest$",
+          "latest": "$tp.latest$"
+        }
+      }
+    },
+    "ds_versions_generic": {
+      "type": "ds.search",
+      "name": "Drilldown - generic KO version list",
+      "options": {
+        "query": "index=\"ko_history\" NOT source=\"ko_usage\" title=\"$drilldownTitle$\"\n| eval appName=coalesce(appName,app)\n| where type=\"$ko_realtype$\" AND appName=\"$link_app$\"\n| eval _content=coalesce(definition,search,regex,value,eval,template)\n| sort - _time\n| streamstats count as vn\n| eval version_no=if(vn=1,\"#\".vn.\" (latest)\",\"#\".vn)\n| eval version_time=strftime(_time,\"%F %T\")\n| eval _epoch=_time\n| eval _audit=if(isnull(_content) OR _content=\"\",1,0)\n| eval state=case(_audit=1,upper(coalesce(method,\"change\")), true(),\"Updated\")\n| fields version_no version_time state _epoch\n| fields - _time",
+        "queryParameters": {
+          "earliest": "$tp.earliest$",
+          "latest": "$tp.latest$"
+        }
+      }
+    },
+    "ds_timeline": {
+      "type": "ds.search",
+      "name": "Drilldown - KO action timeline",
+      "options": {
+        "query": "index=\"ko_history\" NOT source=\"ko_usage\"\n| eval type=coalesce(type, case(match(source,\"views_delete_audit\"),\"views\",match(source,\"reports_and_alerts_delete_audit\"),\"savedsearch\",match(source,\"macros_delete_audit\"),\"macro\",match(source,\"eventtypes_delete_audit\"),\"eventtype\",match(source,\"fieldextractions_delete_audit\"),\"fieldextraction\",match(source,\"lookups_delete_audit\"),\"lookup\",match(source,\"tags_delete_audit\"),\"tag\",1==1,type))\n| rex field=uri \"/servicesNS/[^/]+/(?<app_uri>[^/]+)/\"\n| rex mode=sed field=file \"s/%20/ /g\"\n| rex mode=sed field=file \"s/%3A/:/g\"\n| rex mode=sed field=file \"s/%21/!/g\"\n| rex mode=sed field=file \"s/%28/(/g\"\n| rex mode=sed field=file \"s/%29/)/g\"\n| eval title=coalesce(title,file,dashboard), appName=coalesce(appName,app,app_uri)\n| rex mode=sed field=title \"s/%3A/:/g\"\n| where title=\"$drilldownTitle$\" AND type=\"$ko_realtype$\" AND appName=\"$link_app$\"\n| eval action=case(match(method,\"(?i)delete\"),\"deleted\",match(method,\"(?i)move\"),\"moved\",1==1,\"updated\")\n| sort 0 _time\n| streamstats count as _n\n| eval action=if(_n=1 AND action=\"updated\",\"created\",action)\n| timechart count by action\n",
+        "queryParameters": {
+          "earliest": "$tp.earliest$",
+          "latest": "$tp.latest$"
+        }
+      }
+    },
+    "ds_source": {
+      "type": "ds.chain",
+      "name": "Drilldown - selected vs previous source",
+      "options": {
+        "extend": "ds_dataview",
+        "query": "| eval _sel=tonumber(\"$time$\")\n| where isnull(_sel) OR _time<=_sel\n| head 2\n| streamstats count as _rn\n| eval role=if(_rn=1,\"target\",\"baseline\")\n| eval data=_raw, title=\"$drilldownTitle$\", app=\"$link_app$\"\n| table role title app data"
+      }
+    },
+    "ds_report_card": {
+      "type": "ds.search",
+      "name": "Drilldown - generic KO record fields",
+      "options": {
+        "query": "index=\"ko_history\" NOT source=\"ko_usage\" title=\"$drilldownTitle$\"\n| eval appName=coalesce(appName,app)\n| where type=\"$ko_realtype$\" AND appName=\"$link_app$\"\n| where NOT match(source,\"_delete_audit$\")\n| eval _sel=tonumber(\"$time$\")\n| where isnull(_sel) OR _time<=_sel\n| sort - _time\n| head 2\n| streamstats count as _rn\n| eval role=if(_rn=1,\"target\",\"baseline\")\n| table role title appName owner sharing type updated disabled is_scheduled is_visible definition args iseval priority tags color value extract_kind attribute stanza filename lookup_type collection external_cmd fields_list case_sensitive_match alert_type description search dispatch.earliest_time dispatch.latest_time cron_schedule next_scheduled_time schedule_window schedule_priority actions action.email.to action.email.cc action.email.bcc action.email.from action.email.subject action.email.message.alert action.email.sendresults action.email.inline action.script.filename action.webhook.param.url action.summary_index._name action.summary_index.* alert_comparator alert_threshold alert_condition alert.severity alert.expires alert.track alert.digest_mode alert.suppress alert.suppress.fields alert.suppress.period",
+        "queryParameters": {
+          "earliest": "$tp.earliest$",
+          "latest": "$tp.latest$"
+        }
+      }
+    },
+    "ds_open": {
+      "type": "ds.search",
+      "name": "Drilldown - open live KO link",
+      "options": {
+        "query": "| makeresults count=1\n| eval label=\"\u2197  Open \\\"$link_title$\\\" in a new browser tab\"\n| fields - _time\n| table label"
+      }
+    }
+  },
+  "inputs": {
+    "input_time": {
+      "type": "input.timerange",
+      "title": "Time",
+      "options": {
+        "token": "tp",
+        "defaultValue": "0,"
+      }
+    },
+    "input_user": {
+      "type": "input.dropdown",
+      "title": "Select User",
+      "dataSources": {
+        "primary": "ds_users"
+      },
+      "options": {
+        "items": [
+          {
+            "label": "All",
+            "value": "*"
+          }
+        ],
+        "defaultValue": "*",
+        "token": "selectUser"
+      },
+      "encoding": {
+        "label": "primary.owner",
+        "value": "primary.owner"
+      }
+    },
+    "input_search": {
+      "type": "input.text",
+      "title": "Search label/title",
+      "options": {
+        "defaultValue": "*",
+        "token": "searchForDashboard"
+      }
+    },
+    "input_app": {
+      "type": "input.dropdown",
+      "title": "Select App",
+      "dataSources": {
+        "primary": "ds_apps"
+      },
+      "options": {
+        "items": [
+          {
+            "label": "All",
+            "value": "*"
+          }
+        ],
+        "defaultValue": "*",
+        "token": "selectApp"
+      },
+      "encoding": {
+        "label": "primary.appName",
+        "value": "primary.appName"
+      }
+    },
+    "input_type": {
+      "type": "input.dropdown",
+      "title": "Type",
+      "options": {
+        "items": [
+          {
+            "label": "All",
+            "value": "*"
+          },
+          {
+            "label": "Views",
+            "value": "views"
+          },
+          {
+            "label": "Reports and alerts",
+            "value": "savedsearch"
+          },
+          {
+            "label": "Macros",
+            "value": "macro"
+          },
+          {
+            "label": "Event types",
+            "value": "eventtype"
+          },
+          {
+            "label": "Field extractions",
+            "value": "fieldextraction"
+          },
+          {
+            "label": "Lookups",
+            "value": "lookup"
+          },
+          {
+            "label": "Tags",
+            "value": "tag"
+          }
+        ],
+        "defaultValue": "*",
+        "token": "koType"
+      }
+    },
+    "input_method": {
+      "type": "input.dropdown",
+      "title": "Latest Method",
+      "options": {
+        "items": [
+          {
+            "label": "DELETE",
+            "value": "DELETE"
+          },
+          {
+            "label": "Updated",
+            "value": "updated"
+          },
+          {
+            "label": "Move",
+            "value": "move"
+          },
+          {
+            "label": "All",
+            "value": "*"
+          }
+        ],
+        "defaultValue": "*",
+        "token": "DeletedToken"
+      }
+    }
+  },
+  "visualizations": {
+    "viz_total": {
+      "type": "splunk.singlevalue",
+      "title": "Total knowledge objects",
+      "dataSources": {
+        "primary": "ds_total"
+      }
+    },
+    "viz_top10": {
+      "type": "splunk.bar",
+      "title": "Top 10 apps by knowledge objects (unique titles)",
+      "dataSources": {
+        "primary": "ds_top10"
+      },
+      "options": {
+        "legendDisplay": "right",
+        "stackMode": "stacked"
+      }
+    },
+    "viz_deleted": {
+      "type": "splunk.singlevalue",
+      "title": "Deleted",
+      "dataSources": {
+        "primary": "ds_deleted"
+      },
+      "options": {
+        "majorColor": "#DC4E41"
+      }
+    },
+    "viz_apps": {
+      "type": "splunk.singlevalue",
+      "title": "Apps",
+      "dataSources": {
+        "primary": "ds_apps_kpi"
+      }
+    },
+    "viz_versions_kpi": {
+      "type": "splunk.singlevalue",
+      "title": "Versions captured",
+      "dataSources": {
+        "primary": "ds_versions_kpi"
+      }
+    },
+    "viz_withhistory": {
+      "type": "splunk.singlevalue",
+      "title": "With history (>1 version)",
+      "dataSources": {
+        "primary": "ds_withhistory"
+      }
+    },
+    "viz_changed7d": {
+      "type": "splunk.singlevalue",
+      "title": "Changed (7d)",
+      "dataSources": {
+        "primary": "ds_changed7d"
+      },
+      "options": {
+        "majorColor": "#5CC05C"
+      }
+    },
+    "viz_private": {
+      "type": "splunk.singlevalue",
+      "title": "Private (owner-only)",
+      "dataSources": {
+        "primary": "ds_private"
+      },
+      "options": {
+        "majorColor": "#E0A13A"
+      }
+    },
+    "viz_moved": {
+      "type": "splunk.singlevalue",
+      "title": "Moved",
+      "dataSources": {
+        "primary": "ds_moved"
+      },
+      "options": {
+        "majorColor": "#88527D"
+      }
+    },
+    "viz_mostchanged": {
+      "type": "splunk.table",
+      "title": "Most-changed KOs (by version count)",
+      "dataSources": {
+        "primary": "ds_mostchanged"
+      },
+      "options": {
+        "showRowNumbers": false
+      }
+    },
+    "viz_link_label": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "**Selected:** $link_title$ \u00b7 app: $link_app$ \u00b7 type: $ko_class$ \u00b7 previous: $time$"
+      }
+    },
+    "viz_link": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "kohist-sel: $link_title$ \u27ea|\u27eb $link_app$ \u27ea|\u27eb $ko_class$ \u27ea|\u27eb $time$",
+        "fontColor": "transparent"
+      }
+    },
+    "viz_table": {
+      "type": "splunk.table",
+      "title": "Knowledge objects \u00b7 app: $selectApp$ \u2014 click a row to inspect version history",
+      "dataSources": {
+        "primary": "ds_table"
+      },
+      "options": {
+        "drilldown": "row",
+        "count": 25,
+        "showRowNumbers": false,
+        "showInternalFields": false,
+        "columnFormat": {
+          "latestMethod": {
+            "rowBackgroundColors": "> table | seriesByName(\"latestMethod\") | matchValue(methodBg)",
+            "rowColors": "> table | seriesByName(\"latestMethod\") | matchValue(methodFg)"
+          },
+          "latestSharing": {
+            "rowBackgroundColors": "> table | seriesByName(\"latestSharing\") | matchValue(sharingBg)",
+            "rowColors": "> table | seriesByName(\"latestSharing\") | matchValue(sharingFg)"
+          }
+        }
+      },
+      "context": {
+        "methodBg": [
+          {
+            "match": "DELETE",
+            "value": "#AF575A"
+          },
+          {
+            "match": "updated",
+            "value": "#0099E0"
+          },
+          {
+            "match": "MOVE",
+            "value": "#88527D"
+          },
+          {
+            "match": "created",
+            "value": "#55C169"
+          }
+        ],
+        "methodFg": [
+          {
+            "match": "DELETE",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "updated",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "MOVE",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "created",
+            "value": "#0A0F1C"
+          }
+        ],
+        "sharingBg": [
+          {
+            "match": "user",
+            "value": "#AF575A"
+          },
+          {
+            "match": "app",
+            "value": "#0099E0"
+          },
+          {
+            "match": "global",
+            "value": "#E3723A"
+          },
+          {
+            "match": "n/a",
+            "value": "#CBA700"
+          }
+        ],
+        "sharingFg": [
+          {
+            "match": "user",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "app",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "global",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "n/a",
+            "value": "#0A0F1C"
+          }
+        ]
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_views"
+          ]
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.setToken",
+          "options": {
+            "tokens": [
+              {
+                "token": "drilldownTitle",
+                "key": "row.title.value"
+              },
+              {
+                "token": "link_title",
+                "key": "row.title.value"
+              },
+              {
+                "token": "link_app",
+                "key": "row.appName.value"
+              },
+              {
+                "token": "ko_realtype",
+                "key": "row._rtype.value"
+              },
+              {
+                "token": "ko_class",
+                "key": "row._kclass.value"
+              },
+              {
+                "token": "showDrilldown",
+                "value": "1"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "viz_table_reports": {
+      "type": "splunk.table",
+      "title": "Reports & alerts \u00b7 app: $selectApp$ \u2014 click a row to inspect version history",
+      "dataSources": {
+        "primary": "ds_table_reports"
+      },
+      "options": {
+        "drilldown": "row",
+        "count": 25,
+        "showRowNumbers": false,
+        "showInternalFields": false,
+        "columnFormat": {
+          "latestMethod": {
+            "rowBackgroundColors": "> table | seriesByName(\"latestMethod\") | matchValue(methodBg)",
+            "rowColors": "> table | seriesByName(\"latestMethod\") | matchValue(methodFg)"
+          },
+          "latestSharing": {
+            "rowBackgroundColors": "> table | seriesByName(\"latestSharing\") | matchValue(sharingBg)",
+            "rowColors": "> table | seriesByName(\"latestSharing\") | matchValue(sharingFg)"
+          }
+        }
+      },
+      "context": {
+        "methodBg": [
+          {
+            "match": "DELETE",
+            "value": "#AF575A"
+          },
+          {
+            "match": "updated",
+            "value": "#0099E0"
+          },
+          {
+            "match": "MOVE",
+            "value": "#88527D"
+          },
+          {
+            "match": "created",
+            "value": "#55C169"
+          }
+        ],
+        "methodFg": [
+          {
+            "match": "DELETE",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "updated",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "MOVE",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "created",
+            "value": "#0A0F1C"
+          }
+        ],
+        "sharingBg": [
+          {
+            "match": "user",
+            "value": "#AF575A"
+          },
+          {
+            "match": "app",
+            "value": "#0099E0"
+          },
+          {
+            "match": "global",
+            "value": "#E3723A"
+          },
+          {
+            "match": "n/a",
+            "value": "#CBA700"
+          }
+        ],
+        "sharingFg": [
+          {
+            "match": "user",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "app",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "global",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "n/a",
+            "value": "#0A0F1C"
+          }
+        ]
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_reports"
+          ]
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.setToken",
+          "options": {
+            "tokens": [
+              {
+                "token": "drilldownTitle",
+                "key": "row.title.value"
+              },
+              {
+                "token": "link_title",
+                "key": "row.title.value"
+              },
+              {
+                "token": "link_app",
+                "key": "row.appName.value"
+              },
+              {
+                "token": "ko_realtype",
+                "key": "row._rtype.value"
+              },
+              {
+                "token": "ko_class",
+                "key": "row._kclass.value"
+              },
+              {
+                "token": "showDrilldown",
+                "value": "1"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "viz_table_macros": {
+      "type": "splunk.table",
+      "title": "Macros \u00b7 app: $selectApp$ \u2014 click a row to inspect version history",
+      "dataSources": {
+        "primary": "ds_table_macros"
+      },
+      "options": {
+        "drilldown": "row",
+        "count": 25,
+        "showRowNumbers": false,
+        "showInternalFields": false,
+        "columnFormat": {
+          "latestMethod": {
+            "rowBackgroundColors": "> table | seriesByName(\"latestMethod\") | matchValue(methodBg)",
+            "rowColors": "> table | seriesByName(\"latestMethod\") | matchValue(methodFg)"
+          },
+          "latestSharing": {
+            "rowBackgroundColors": "> table | seriesByName(\"latestSharing\") | matchValue(sharingBg)",
+            "rowColors": "> table | seriesByName(\"latestSharing\") | matchValue(sharingFg)"
+          }
+        }
+      },
+      "context": {
+        "methodBg": [
+          {
+            "match": "DELETE",
+            "value": "#AF575A"
+          },
+          {
+            "match": "updated",
+            "value": "#0099E0"
+          },
+          {
+            "match": "MOVE",
+            "value": "#88527D"
+          },
+          {
+            "match": "created",
+            "value": "#55C169"
+          }
+        ],
+        "methodFg": [
+          {
+            "match": "DELETE",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "updated",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "MOVE",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "created",
+            "value": "#0A0F1C"
+          }
+        ],
+        "sharingBg": [
+          {
+            "match": "user",
+            "value": "#AF575A"
+          },
+          {
+            "match": "app",
+            "value": "#0099E0"
+          },
+          {
+            "match": "global",
+            "value": "#E3723A"
+          },
+          {
+            "match": "n/a",
+            "value": "#CBA700"
+          }
+        ],
+        "sharingFg": [
+          {
+            "match": "user",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "app",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "global",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "n/a",
+            "value": "#0A0F1C"
+          }
+        ]
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_macros"
+          ]
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.setToken",
+          "options": {
+            "tokens": [
+              {
+                "token": "drilldownTitle",
+                "key": "row.title.value"
+              },
+              {
+                "token": "link_title",
+                "key": "row.title.value"
+              },
+              {
+                "token": "link_app",
+                "key": "row.appName.value"
+              },
+              {
+                "token": "ko_realtype",
+                "key": "row._rtype.value"
+              },
+              {
+                "token": "ko_class",
+                "key": "row._kclass.value"
+              },
+              {
+                "token": "showDrilldown",
+                "value": "1"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "viz_table_eventtypes": {
+      "type": "splunk.table",
+      "title": "Event types \u00b7 app: $selectApp$ \u2014 click a row to inspect version history",
+      "dataSources": {
+        "primary": "ds_table_eventtypes"
+      },
+      "options": {
+        "drilldown": "row",
+        "count": 25,
+        "showRowNumbers": false,
+        "showInternalFields": false,
+        "columnFormat": {
+          "latestMethod": {
+            "rowBackgroundColors": "> table | seriesByName(\"latestMethod\") | matchValue(methodBg)",
+            "rowColors": "> table | seriesByName(\"latestMethod\") | matchValue(methodFg)"
+          },
+          "latestSharing": {
+            "rowBackgroundColors": "> table | seriesByName(\"latestSharing\") | matchValue(sharingBg)",
+            "rowColors": "> table | seriesByName(\"latestSharing\") | matchValue(sharingFg)"
+          }
+        }
+      },
+      "context": {
+        "methodBg": [
+          {
+            "match": "DELETE",
+            "value": "#AF575A"
+          },
+          {
+            "match": "updated",
+            "value": "#0099E0"
+          },
+          {
+            "match": "MOVE",
+            "value": "#88527D"
+          },
+          {
+            "match": "created",
+            "value": "#55C169"
+          }
+        ],
+        "methodFg": [
+          {
+            "match": "DELETE",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "updated",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "MOVE",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "created",
+            "value": "#0A0F1C"
+          }
+        ],
+        "sharingBg": [
+          {
+            "match": "user",
+            "value": "#AF575A"
+          },
+          {
+            "match": "app",
+            "value": "#0099E0"
+          },
+          {
+            "match": "global",
+            "value": "#E3723A"
+          },
+          {
+            "match": "n/a",
+            "value": "#CBA700"
+          }
+        ],
+        "sharingFg": [
+          {
+            "match": "user",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "app",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "global",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "n/a",
+            "value": "#0A0F1C"
+          }
+        ]
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_eventtypes"
+          ]
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.setToken",
+          "options": {
+            "tokens": [
+              {
+                "token": "drilldownTitle",
+                "key": "row.title.value"
+              },
+              {
+                "token": "link_title",
+                "key": "row.title.value"
+              },
+              {
+                "token": "link_app",
+                "key": "row.appName.value"
+              },
+              {
+                "token": "ko_realtype",
+                "key": "row._rtype.value"
+              },
+              {
+                "token": "ko_class",
+                "key": "row._kclass.value"
+              },
+              {
+                "token": "showDrilldown",
+                "value": "1"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "viz_table_fieldextractions": {
+      "type": "splunk.table",
+      "title": "Field extractions \u00b7 app: $selectApp$ \u2014 click a row to inspect version history",
+      "dataSources": {
+        "primary": "ds_table_fieldextractions"
+      },
+      "options": {
+        "drilldown": "row",
+        "count": 25,
+        "showRowNumbers": false,
+        "showInternalFields": false,
+        "columnFormat": {
+          "latestMethod": {
+            "rowBackgroundColors": "> table | seriesByName(\"latestMethod\") | matchValue(methodBg)",
+            "rowColors": "> table | seriesByName(\"latestMethod\") | matchValue(methodFg)"
+          },
+          "latestSharing": {
+            "rowBackgroundColors": "> table | seriesByName(\"latestSharing\") | matchValue(sharingBg)",
+            "rowColors": "> table | seriesByName(\"latestSharing\") | matchValue(sharingFg)"
+          }
+        }
+      },
+      "context": {
+        "methodBg": [
+          {
+            "match": "DELETE",
+            "value": "#AF575A"
+          },
+          {
+            "match": "updated",
+            "value": "#0099E0"
+          },
+          {
+            "match": "MOVE",
+            "value": "#88527D"
+          },
+          {
+            "match": "created",
+            "value": "#55C169"
+          }
+        ],
+        "methodFg": [
+          {
+            "match": "DELETE",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "updated",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "MOVE",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "created",
+            "value": "#0A0F1C"
+          }
+        ],
+        "sharingBg": [
+          {
+            "match": "user",
+            "value": "#AF575A"
+          },
+          {
+            "match": "app",
+            "value": "#0099E0"
+          },
+          {
+            "match": "global",
+            "value": "#E3723A"
+          },
+          {
+            "match": "n/a",
+            "value": "#CBA700"
+          }
+        ],
+        "sharingFg": [
+          {
+            "match": "user",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "app",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "global",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "n/a",
+            "value": "#0A0F1C"
+          }
+        ]
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_fieldextractions"
+          ]
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.setToken",
+          "options": {
+            "tokens": [
+              {
+                "token": "drilldownTitle",
+                "key": "row.title.value"
+              },
+              {
+                "token": "link_title",
+                "key": "row.title.value"
+              },
+              {
+                "token": "link_app",
+                "key": "row.appName.value"
+              },
+              {
+                "token": "ko_realtype",
+                "key": "row._rtype.value"
+              },
+              {
+                "token": "ko_class",
+                "key": "row._kclass.value"
+              },
+              {
+                "token": "showDrilldown",
+                "value": "1"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "viz_table_lookups": {
+      "type": "splunk.table",
+      "title": "Lookups \u00b7 app: $selectApp$ \u2014 click a row to inspect version history",
+      "dataSources": {
+        "primary": "ds_table_lookups"
+      },
+      "options": {
+        "drilldown": "row",
+        "count": 25,
+        "showRowNumbers": false,
+        "showInternalFields": false,
+        "columnFormat": {
+          "latestMethod": {
+            "rowBackgroundColors": "> table | seriesByName(\"latestMethod\") | matchValue(methodBg)",
+            "rowColors": "> table | seriesByName(\"latestMethod\") | matchValue(methodFg)"
+          },
+          "latestSharing": {
+            "rowBackgroundColors": "> table | seriesByName(\"latestSharing\") | matchValue(sharingBg)",
+            "rowColors": "> table | seriesByName(\"latestSharing\") | matchValue(sharingFg)"
+          }
+        }
+      },
+      "context": {
+        "methodBg": [
+          {
+            "match": "DELETE",
+            "value": "#AF575A"
+          },
+          {
+            "match": "updated",
+            "value": "#0099E0"
+          },
+          {
+            "match": "MOVE",
+            "value": "#88527D"
+          },
+          {
+            "match": "created",
+            "value": "#55C169"
+          }
+        ],
+        "methodFg": [
+          {
+            "match": "DELETE",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "updated",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "MOVE",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "created",
+            "value": "#0A0F1C"
+          }
+        ],
+        "sharingBg": [
+          {
+            "match": "user",
+            "value": "#AF575A"
+          },
+          {
+            "match": "app",
+            "value": "#0099E0"
+          },
+          {
+            "match": "global",
+            "value": "#E3723A"
+          },
+          {
+            "match": "n/a",
+            "value": "#CBA700"
+          }
+        ],
+        "sharingFg": [
+          {
+            "match": "user",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "app",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "global",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "n/a",
+            "value": "#0A0F1C"
+          }
+        ]
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_lookups"
+          ]
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.setToken",
+          "options": {
+            "tokens": [
+              {
+                "token": "drilldownTitle",
+                "key": "row.title.value"
+              },
+              {
+                "token": "link_title",
+                "key": "row.title.value"
+              },
+              {
+                "token": "link_app",
+                "key": "row.appName.value"
+              },
+              {
+                "token": "ko_realtype",
+                "key": "row._rtype.value"
+              },
+              {
+                "token": "ko_class",
+                "key": "row._kclass.value"
+              },
+              {
+                "token": "showDrilldown",
+                "value": "1"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "viz_table_tags": {
+      "type": "splunk.table",
+      "title": "Tags \u00b7 app: $selectApp$ \u2014 click a row to inspect version history",
+      "dataSources": {
+        "primary": "ds_table_tags"
+      },
+      "options": {
+        "drilldown": "row",
+        "count": 25,
+        "showRowNumbers": false,
+        "showInternalFields": false,
+        "columnFormat": {
+          "latestMethod": {
+            "rowBackgroundColors": "> table | seriesByName(\"latestMethod\") | matchValue(methodBg)",
+            "rowColors": "> table | seriesByName(\"latestMethod\") | matchValue(methodFg)"
+          },
+          "latestSharing": {
+            "rowBackgroundColors": "> table | seriesByName(\"latestSharing\") | matchValue(sharingBg)",
+            "rowColors": "> table | seriesByName(\"latestSharing\") | matchValue(sharingFg)"
+          }
+        }
+      },
+      "context": {
+        "methodBg": [
+          {
+            "match": "DELETE",
+            "value": "#AF575A"
+          },
+          {
+            "match": "updated",
+            "value": "#0099E0"
+          },
+          {
+            "match": "MOVE",
+            "value": "#88527D"
+          },
+          {
+            "match": "created",
+            "value": "#55C169"
+          }
+        ],
+        "methodFg": [
+          {
+            "match": "DELETE",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "updated",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "MOVE",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "created",
+            "value": "#0A0F1C"
+          }
+        ],
+        "sharingBg": [
+          {
+            "match": "user",
+            "value": "#AF575A"
+          },
+          {
+            "match": "app",
+            "value": "#0099E0"
+          },
+          {
+            "match": "global",
+            "value": "#E3723A"
+          },
+          {
+            "match": "n/a",
+            "value": "#CBA700"
+          }
+        ],
+        "sharingFg": [
+          {
+            "match": "user",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "app",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "global",
+            "value": "#FFFFFF"
+          },
+          {
+            "match": "n/a",
+            "value": "#0A0F1C"
+          }
+        ]
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_tags"
+          ]
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.setToken",
+          "options": {
+            "tokens": [
+              {
+                "token": "drilldownTitle",
+                "key": "row.title.value"
+              },
+              {
+                "token": "link_title",
+                "key": "row.title.value"
+              },
+              {
+                "token": "link_app",
+                "key": "row.appName.value"
+              },
+              {
+                "token": "ko_realtype",
+                "key": "row._rtype.value"
+              },
+              {
+                "token": "ko_class",
+                "key": "row._kclass.value"
+              },
+              {
+                "token": "showDrilldown",
+                "value": "1"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "viz_versions": {
+      "type": "splunk.table",
+      "title": "Versions of \"$drilldownTitle$\" in $link_app$ \u2014 newest first; click a row to diff against the previous version",
+      "dataSources": {
+        "primary": "ds_versions"
+      },
+      "options": {
+        "drilldown": "row",
+        "showInternalFields": false
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_is_dashboard"
+          ]
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.setToken",
+          "options": {
+            "tokens": [
+              {
+                "token": "time",
+                "key": "row._epoch.value"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "viz_versions_ss": {
+      "type": "splunk.table",
+      "title": "Versions of \"$drilldownTitle$\" in $link_app$ \u2014 newest first; click a row to inspect",
+      "dataSources": {
+        "primary": "ds_versions_ss"
+      },
+      "options": {
+        "drilldown": "row",
+        "showInternalFields": false
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_is_savedsearch"
+          ]
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.setToken",
+          "options": {
+            "tokens": [
+              {
+                "token": "time",
+                "key": "row._epoch.value"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "viz_versions_generic": {
+      "type": "splunk.table",
+      "title": "Versions of \"$drilldownTitle$\" in $link_app$ \u2014 newest first; click a row to inspect",
+      "dataSources": {
+        "primary": "ds_versions_generic"
+      },
+      "options": {
+        "drilldown": "row",
+        "showInternalFields": false
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_is_generic"
+          ]
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.setToken",
+          "options": {
+            "tokens": [
+              {
+                "token": "time",
+                "key": "row._epoch.value"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "viz_timeline": {
+      "type": "splunk.column",
+      "title": "Edit history \u2014 actions over time",
+      "dataSources": {
+        "primary": "ds_timeline"
+      },
+      "options": {
+        "stackMode": "stacked",
+        "legendDisplay": "right",
+        "fieldColors": {
+          "created": "#55C169",
+          "updated": "#0099E0",
+          "deleted": "#AF575A",
+          "moved": "#88527D"
+        }
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_has_selection"
+          ]
+        }
+      }
+    },
+    "viz_source": {
+      "type": "ko_history.json_viewer",
+      "title": "Source & diff \u2014 selected version vs previous",
+      "dataSources": {
+        "primary": "ds_source"
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_is_dashboard"
+          ]
+        }
+      }
+    },
+    "viz_report_card": {
+      "type": "ko_history.ko_viewer",
+      "title": "Record \u2014 $drilldownTitle$",
+      "dataSources": {
+        "primary": "ds_report_card"
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_is_not_dashboard"
+          ]
+        }
+      }
+    },
+    "viz_open_views": {
+      "type": "splunk.table",
+      "dataSources": {
+        "primary": "ds_open"
+      },
+      "options": {
+        "headerVisibility": "none",
+        "backgroundColor": "transparent",
+        "fontSize": "large",
+        "tableFormat": {
+          "rowBackgroundColors": "> table | seriesByIndex(0) | pick(tableAltRowBackgroundColorsByBackgroundColor)",
+          "headerBackgroundColor": "> backgroundColor | setColorChannel(tableHeaderBackgroundColorConfig)",
+          "rowColors": "> rowBackgroundColors | maxContrast(tableRowColorMaxContrast)",
+          "headerColor": "> headerBackgroundColor | maxContrast(tableRowColorMaxContrast)"
+        }
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_open_views"
+          ]
+        }
+      },
+      "showProgressBar": false,
+      "showLastUpdated": false,
+      "eventHandlers": [
+        {
+          "type": "drilldown.customUrl",
+          "options": {
+            "url": "/app/$link_app$/$link_title$",
+            "newTab": true
+          }
+        }
+      ]
+    },
+    "viz_open_savedsearch": {
+      "type": "splunk.table",
+      "dataSources": {
+        "primary": "ds_open"
+      },
+      "options": {
+        "headerVisibility": "none",
+        "backgroundColor": "transparent",
+        "fontSize": "large",
+        "tableFormat": {
+          "rowBackgroundColors": "> table | seriesByIndex(0) | pick(tableAltRowBackgroundColorsByBackgroundColor)",
+          "headerBackgroundColor": "> backgroundColor | setColorChannel(tableHeaderBackgroundColorConfig)",
+          "rowColors": "> rowBackgroundColors | maxContrast(tableRowColorMaxContrast)",
+          "headerColor": "> headerBackgroundColor | maxContrast(tableRowColorMaxContrast)"
+        }
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_open_savedsearch"
+          ]
+        }
+      },
+      "showProgressBar": false,
+      "showLastUpdated": false,
+      "eventHandlers": [
+        {
+          "type": "drilldown.customUrl",
+          "options": {
+            "url": "/manager/$link_app$/saved/searches?ns=$link_app$&pwnr=-&search=$link_title$",
+            "newTab": true
+          }
+        }
+      ]
+    },
+    "viz_open_eventtype": {
+      "type": "splunk.table",
+      "dataSources": {
+        "primary": "ds_open"
+      },
+      "options": {
+        "headerVisibility": "none",
+        "backgroundColor": "transparent",
+        "fontSize": "large",
+        "tableFormat": {
+          "rowBackgroundColors": "> table | seriesByIndex(0) | pick(tableAltRowBackgroundColorsByBackgroundColor)",
+          "headerBackgroundColor": "> backgroundColor | setColorChannel(tableHeaderBackgroundColorConfig)",
+          "rowColors": "> rowBackgroundColors | maxContrast(tableRowColorMaxContrast)",
+          "headerColor": "> headerBackgroundColor | maxContrast(tableRowColorMaxContrast)"
+        }
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_open_eventtype"
+          ]
+        }
+      },
+      "showProgressBar": false,
+      "showLastUpdated": false,
+      "eventHandlers": [
+        {
+          "type": "drilldown.customUrl",
+          "options": {
+            "url": "/manager/$link_app$/saved/eventtypes?ns=$link_app$&pwnr=-&search=$link_title$",
+            "newTab": true
+          }
+        }
+      ]
+    },
+    "viz_open_macro": {
+      "type": "splunk.table",
+      "dataSources": {
+        "primary": "ds_open"
+      },
+      "options": {
+        "headerVisibility": "none",
+        "backgroundColor": "transparent",
+        "fontSize": "large",
+        "tableFormat": {
+          "rowBackgroundColors": "> table | seriesByIndex(0) | pick(tableAltRowBackgroundColorsByBackgroundColor)",
+          "headerBackgroundColor": "> backgroundColor | setColorChannel(tableHeaderBackgroundColorConfig)",
+          "rowColors": "> rowBackgroundColors | maxContrast(tableRowColorMaxContrast)",
+          "headerColor": "> headerBackgroundColor | maxContrast(tableRowColorMaxContrast)"
+        }
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_open_macro"
+          ]
+        }
+      },
+      "showProgressBar": false,
+      "showLastUpdated": false,
+      "eventHandlers": [
+        {
+          "type": "drilldown.customUrl",
+          "options": {
+            "url": "/manager/$link_app$/data/macros?ns=$link_app$&pwnr=-&search=$link_title$",
+            "newTab": true
+          }
+        }
+      ]
+    },
+    "viz_open_fieldextraction": {
+      "type": "splunk.table",
+      "dataSources": {
+        "primary": "ds_open"
+      },
+      "options": {
+        "headerVisibility": "none",
+        "backgroundColor": "transparent",
+        "fontSize": "large",
+        "tableFormat": {
+          "rowBackgroundColors": "> table | seriesByIndex(0) | pick(tableAltRowBackgroundColorsByBackgroundColor)",
+          "headerBackgroundColor": "> backgroundColor | setColorChannel(tableHeaderBackgroundColorConfig)",
+          "rowColors": "> rowBackgroundColors | maxContrast(tableRowColorMaxContrast)",
+          "headerColor": "> headerBackgroundColor | maxContrast(tableRowColorMaxContrast)"
+        }
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_open_fieldextraction"
+          ]
+        }
+      },
+      "showProgressBar": false,
+      "showLastUpdated": false,
+      "eventHandlers": [
+        {
+          "type": "drilldown.customUrl",
+          "options": {
+            "url": "/manager/$link_app$/data/props/extractions?ns=$link_app$&pwnr=-&search=$link_title$",
+            "newTab": true
+          }
+        }
+      ]
+    },
+    "viz_open_lookup": {
+      "type": "splunk.table",
+      "dataSources": {
+        "primary": "ds_open"
+      },
+      "options": {
+        "headerVisibility": "none",
+        "backgroundColor": "transparent",
+        "fontSize": "large",
+        "tableFormat": {
+          "rowBackgroundColors": "> table | seriesByIndex(0) | pick(tableAltRowBackgroundColorsByBackgroundColor)",
+          "headerBackgroundColor": "> backgroundColor | setColorChannel(tableHeaderBackgroundColorConfig)",
+          "rowColors": "> rowBackgroundColors | maxContrast(tableRowColorMaxContrast)",
+          "headerColor": "> headerBackgroundColor | maxContrast(tableRowColorMaxContrast)"
+        }
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_open_lookup"
+          ]
+        }
+      },
+      "showProgressBar": false,
+      "showLastUpdated": false,
+      "eventHandlers": [
+        {
+          "type": "drilldown.customUrl",
+          "options": {
+            "url": "/manager/$link_app$/data/transforms/lookups?ns=$link_app$&pwnr=-&search=$link_title$",
+            "newTab": true
+          }
+        }
+      ]
+    },
+    "viz_open_tag": {
+      "type": "splunk.table",
+      "dataSources": {
+        "primary": "ds_open"
+      },
+      "options": {
+        "headerVisibility": "none",
+        "backgroundColor": "transparent",
+        "fontSize": "large",
+        "tableFormat": {
+          "rowBackgroundColors": "> table | seriesByIndex(0) | pick(tableAltRowBackgroundColorsByBackgroundColor)",
+          "headerBackgroundColor": "> backgroundColor | setColorChannel(tableHeaderBackgroundColorConfig)",
+          "rowColors": "> rowBackgroundColors | maxContrast(tableRowColorMaxContrast)",
+          "headerColor": "> headerBackgroundColor | maxContrast(tableRowColorMaxContrast)"
+        }
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_open_tag"
+          ]
+        }
+      },
+      "showProgressBar": false,
+      "showLastUpdated": false,
+      "eventHandlers": [
+        {
+          "type": "drilldown.customUrl",
+          "options": {
+            "url": "/manager/$link_app$/saved/fvtags?ns=$link_app$&pwnr=-&search=%22$link_title$%22",
+            "newTab": true
+          }
+        }
+      ]
+    }
+  },
+  "layout": {
+    "type": "absolute",
+    "options": {
+      "width": 1920,
+      "height": 2020,
+      "display": "auto"
+    },
+    "globalInputs": [
+      "input_time",
+      "input_user",
+      "input_search",
+      "input_app",
+      "input_type",
+      "input_method"
+    ],
+    "structure": [
+      {
+        "item": "viz_total",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "w": 225,
+          "h": 160
+        }
+      },
+      {
+        "item": "viz_apps",
+        "type": "block",
+        "position": {
+          "x": 240,
+          "y": 0,
+          "w": 225,
+          "h": 160
+        }
+      },
+      {
+        "item": "viz_versions_kpi",
+        "type": "block",
+        "position": {
+          "x": 480,
+          "y": 0,
+          "w": 225,
+          "h": 160
+        }
+      },
+      {
+        "item": "viz_withhistory",
+        "type": "block",
+        "position": {
+          "x": 720,
+          "y": 0,
+          "w": 225,
+          "h": 160
+        }
+      },
+      {
+        "item": "viz_changed7d",
+        "type": "block",
+        "position": {
+          "x": 960,
+          "y": 0,
+          "w": 225,
+          "h": 160
+        }
+      },
+      {
+        "item": "viz_private",
+        "type": "block",
+        "position": {
+          "x": 1200,
+          "y": 0,
+          "w": 225,
+          "h": 160
+        }
+      },
+      {
+        "item": "viz_deleted",
+        "type": "block",
+        "position": {
+          "x": 1440,
+          "y": 0,
+          "w": 225,
+          "h": 160
+        }
+      },
+      {
+        "item": "viz_moved",
+        "type": "block",
+        "position": {
+          "x": 1680,
+          "y": 0,
+          "w": 225,
+          "h": 160
+        }
+      },
+      {
+        "item": "viz_top10",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 170,
+          "w": 1140,
+          "h": 230
+        }
+      },
+      {
+        "item": "viz_mostchanged",
+        "type": "block",
+        "position": {
+          "x": 1160,
+          "y": 170,
+          "w": 760,
+          "h": 230
+        }
+      },
+      {
+        "item": "viz_link_label",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 420,
+          "w": 980,
+          "h": 30
+        }
+      },
+      {
+        "item": "viz_link",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 450,
+          "w": 980,
+          "h": 24
+        }
+      },
+      {
+        "item": "viz_table",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 480,
+          "w": 1920,
+          "h": 520
+        }
+      },
+      {
+        "item": "viz_table_reports",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 480,
+          "w": 1920,
+          "h": 520
+        }
+      },
+      {
+        "item": "viz_table_macros",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 480,
+          "w": 1920,
+          "h": 520
+        }
+      },
+      {
+        "item": "viz_table_eventtypes",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 480,
+          "w": 1920,
+          "h": 520
+        }
+      },
+      {
+        "item": "viz_table_fieldextractions",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 480,
+          "w": 1920,
+          "h": 520
+        }
+      },
+      {
+        "item": "viz_table_lookups",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 480,
+          "w": 1920,
+          "h": 520
+        }
+      },
+      {
+        "item": "viz_table_tags",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 480,
+          "w": 1920,
+          "h": 520
+        }
+      },
+      {
+        "item": "viz_timeline",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 1020,
+          "w": 1920,
+          "h": 200
+        }
+      },
+      {
+        "item": "viz_versions",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 1240,
+          "w": 640,
+          "h": 760
+        }
+      },
+      {
+        "item": "viz_versions_ss",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 1240,
+          "w": 640,
+          "h": 760
+        }
+      },
+      {
+        "item": "viz_versions_generic",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 1240,
+          "w": 640,
+          "h": 760
+        }
+      },
+      {
+        "item": "viz_source",
+        "type": "block",
+        "position": {
+          "x": 660,
+          "y": 1240,
+          "w": 1260,
+          "h": 760
+        }
+      },
+      {
+        "item": "viz_report_card",
+        "type": "block",
+        "position": {
+          "x": 660,
+          "y": 1240,
+          "w": 1260,
+          "h": 760
+        }
+      },
+      {
+        "item": "viz_open_views",
+        "type": "block",
+        "position": {
+          "x": 1000,
+          "y": 410,
+          "w": 920,
+          "h": 60
+        }
+      },
+      {
+        "item": "viz_open_savedsearch",
+        "type": "block",
+        "position": {
+          "x": 1000,
+          "y": 410,
+          "w": 920,
+          "h": 60
+        }
+      },
+      {
+        "item": "viz_open_eventtype",
+        "type": "block",
+        "position": {
+          "x": 1000,
+          "y": 410,
+          "w": 920,
+          "h": 60
+        }
+      },
+      {
+        "item": "viz_open_macro",
+        "type": "block",
+        "position": {
+          "x": 1000,
+          "y": 410,
+          "w": 920,
+          "h": 60
+        }
+      },
+      {
+        "item": "viz_open_fieldextraction",
+        "type": "block",
+        "position": {
+          "x": 1000,
+          "y": 410,
+          "w": 920,
+          "h": 60
+        }
+      },
+      {
+        "item": "viz_open_lookup",
+        "type": "block",
+        "position": {
+          "x": 1000,
+          "y": 410,
+          "w": 920,
+          "h": 60
+        }
+      },
+      {
+        "item": "viz_open_tag",
+        "type": "block",
+        "position": {
+          "x": 1000,
+          "y": 410,
+          "w": 920,
+          "h": 60
+        }
+      }
+    ]
+  }
+}
+  ]]></definition>
+</dashboard>

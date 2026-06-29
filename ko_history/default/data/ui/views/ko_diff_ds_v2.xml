@@ -1,0 +1,30 @@
+<dashboard version="2" theme="dark">
+  <label>Service Overview (Test v2)</label>
+  <definition><![CDATA[
+{
+  "title": "Service Overview (Test v2)",
+  "description": "Test fixture v2 for the Dashboard Diff viz (Dashboard Studio). vs v1: Latency moved, Notes changed, Errors removed, Saturation added.",
+  "visualizations": {
+    "viz_req": { "type": "splunk.singlevalue", "title": "Requests", "dataSources": { "primary": "ds_req" } },
+    "viz_lat": { "type": "splunk.line", "title": "Latency", "dataSources": { "primary": "ds_lat" } },
+    "viz_notes": { "type": "splunk.markdown", "options": { "markdown": "# Notes\nUpdated for v2 with capacity guidance and on-call links." } },
+    "viz_new": { "type": "splunk.singlevalue", "title": "Saturation", "dataSources": { "primary": "ds_new" } }
+  },
+  "dataSources": {
+    "ds_req": { "type": "ds.search", "options": { "query": "| makeresults | eval Requests=42 | table Requests" } },
+    "ds_lat": { "type": "ds.search", "options": { "query": "index=_internal | timechart count as latency" } },
+    "ds_new": { "type": "ds.search", "options": { "query": "| makeresults | eval Saturation=77 | table Saturation" } }
+  },
+  "layout": {
+    "type": "absolute",
+    "options": { "width": 1200, "height": 600 },
+    "structure": [
+      { "item": "viz_req", "type": "block", "position": { "x": 0, "y": 0, "w": 300, "h": 200 } },
+      { "item": "viz_new", "type": "block", "position": { "x": 320, "y": 0, "w": 880, "h": 200 } },
+      { "item": "viz_lat", "type": "block", "position": { "x": 0, "y": 220, "w": 600, "h": 360 } },
+      { "item": "viz_notes", "type": "block", "position": { "x": 620, "y": 220, "w": 580, "h": 360 } }
+    ]
+  }
+}
+  ]]></definition>
+</dashboard>

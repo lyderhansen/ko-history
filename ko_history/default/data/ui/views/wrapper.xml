@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<view template="ko_history:/templates/wrapper.html" type="html">
+  <label>KO History Wrapper</label>
+</view>

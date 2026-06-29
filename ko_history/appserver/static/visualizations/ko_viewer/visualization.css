@@ -1,0 +1,140 @@
+/* ko_history.report_card — Splunk Enterprise themed record card.
+   Theme tokens scoped to the root class (.korc--dark / .korc--light), resolved
+   from @splunk/themes so the card matches Splunk Enterprise dark/light. The
+   card renders flush — the Splunk panel is its frame (no nested card chrome). */
+
+.korc--dark{
+  --panel:#1E2427; --panel-hi:#2b3033; --inset:#12171a;
+  --text:#e1e6eb; --text-strong:#ffffff; --dim:#8c98a3; --faint:#5c6970;
+  --accent:#00a4fd; --border:#404547; --border-st:#75797a;
+  --ok:#5cc05c; --ok-bg:rgba(83,160,81,0.15); --ok-br:rgba(92,192,92,0.45);
+  --off:#dc4e41; --off-bg:rgba(220,78,65,0.15); --off-br:rgba(220,78,65,0.45);
+  --warn:#f8be34; --warn-bg:rgba(248,190,52,0.14); --warn-br:rgba(248,190,52,0.45);
+  --acc-bg:rgba(0,164,253,0.12); --acc-br:rgba(0,164,253,0.40);
+  /* SPL syntax — Splunk search-bar scheme */
+  --s-cmd:#3fb6c2; --s-fn:#b083e0; --s-kw:#e0a13a; --s-str:#e0707a; --s-num:#6cb88f;
+}
+.korc--light{
+  --panel:#ffffff; --panel-hi:#f7f8fa; --inset:#f2f4f5;
+  --text:#3c444d; --text-strong:#171d21; --dim:#6b7785; --faint:#9aa7b0;
+  --accent:#007abd; --border:#d6d6d6; --border-st:#8c8c8c;
+  --ok:#53a051; --ok-bg:rgba(83,160,81,0.12); --ok-br:rgba(83,160,81,0.45);
+  --off:#dc4e41; --off-bg:rgba(220,78,65,0.10); --off-br:rgba(220,78,65,0.45);
+  --warn:#9a6a00; --warn-bg:rgba(248,190,52,0.20); --warn-br:rgba(154,106,0,0.40);
+  --acc-bg:rgba(0,122,189,0.08); --acc-br:rgba(0,122,189,0.35);
+  /* SPL syntax — Splunk search-bar scheme (light) */
+  --s-cmd:#0a7c8a; --s-fn:#7a3fb0; --s-kw:#b5670a; --s-str:#b5403f; --s-num:#1f7a5a;
+}
+
+/* this.el — fill the panel so the card can scroll inside it (matches json_viewer) */
+.ko-viewer-viz{ width:100%; height:100%; box-sizing:border-box; }
+.korc{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  font-size:13px; color:var(--text); line-height:1.5; box-sizing:border-box;
+  -webkit-font-smoothing:antialiased; width:100%; padding:2px 4px 6px;
+  /* fill the panel and scroll when the record is taller than the panel.
+     height:100% only constrains when the parent has a real height (the DS
+     panel); in the standalone harness the parent is auto, so this is a no-op
+     and the full card shows. */
+  height:100%; overflow-y:auto; overflow-x:hidden;
+}
+.korc *,.korc *::before,.korc *::after{box-sizing:border-box}
+.korc__empty{color:var(--dim); padding:20px; font-style:italic}
+.korc__card{background:transparent}
+.korc__mono,.korc code,.korc__cv,.korc__code{font-family:"Splunk Platform Mono","SF Mono","Roboto Mono",Consolas,monospace}
+
+/* header */
+.korc__head{display:flex; gap:16px; align-items:flex-start; justify-content:space-between; padding:4px 0 13px; border-bottom:1px solid var(--border)}
+.korc__title{font-size:19px; font-weight:600; line-height:1.25; color:var(--text-strong); letter-spacing:-.005em; overflow-wrap:anywhere}
+.korc__sub{margin-top:6px; font-size:12px; color:var(--dim)}
+.korc__sub b{color:var(--text); font-weight:500}
+.korc__dot{color:var(--faint); margin:0 7px}
+.korc__seals{display:flex; flex-direction:column; gap:6px; align-items:flex-end; flex-shrink:0}
+.korc__seal{font-size:11px; font-weight:600; letter-spacing:.02em; padding:3px 9px; border-radius:3px; border:1px solid var(--border-st); background:transparent; color:var(--dim); white-space:nowrap}
+.korc__seal.mini{font-size:10px; padding:2px 8px}
+.korc__seal.kind{color:var(--accent); border-color:var(--acc-br); background:var(--acc-bg)}
+.korc__seal.on{color:var(--ok); border-color:var(--ok-br); background:var(--ok-bg)}
+.korc__seal.off{color:var(--off); border-color:var(--off-br); background:var(--off-bg)}
+.korc__seal .dot{display:inline-block; width:7px; height:7px; border-radius:50%; background:currentColor; margin-right:6px; vertical-align:middle}
+
+/* section scaffold */
+.korc__sec{padding-top:15px}
+.korc__sechead{display:flex; align-items:center; gap:10px; margin-bottom:10px}
+.korc__secidx{font-size:11px; font-weight:600; color:var(--faint)}
+.korc__secname{font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--text-strong); white-space:nowrap}
+.korc__secrule{flex:1; height:1px; background:var(--border)}
+
+/* label / value rows */
+.korc__rows{display:grid; grid-template-columns:168px 1fr; gap:7px 16px}
+.korc__k{font-size:12px; color:var(--dim); text-align:right; padding-top:1px}
+.korc__v{font-size:12.5px; color:var(--text); overflow-wrap:anywhere}
+.korc__mut{color:var(--faint)}
+.korc__hum{color:var(--accent)}
+/* inline code chips live in row values only — NOT the SPL block lines */
+.korc__v code{font-size:11.5px; color:var(--text); background:var(--panel-hi); border:1px solid var(--border); border-radius:3px; padding:1px 5px}
+.korc__code code{background:none; border:0; padding:0; border-radius:0; color:inherit}
+
+/* description */
+.korc__desc{font-size:12.5px; line-height:1.55; color:var(--dim); margin:0 0 12px}
+
+/* SPL block */
+.korc__spl{background:var(--inset); border:1px solid var(--border); border-radius:4px; margin-top:2px; overflow:hidden}
+.korc__splbar{display:flex; align-items:center; justify-content:space-between; padding:6px 8px 6px 12px; border-bottom:1px solid var(--border)}
+.korc__spllbl{font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--faint)}
+.korc__copy{display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--accent); background:transparent; border:1px solid var(--acc-br); border-radius:3px; padding:4px 9px; cursor:pointer; font-family:inherit}
+.korc__copy:hover{background:var(--acc-bg)}
+.korc__copy.is-copied{color:var(--ok); border-color:var(--ok-br)}
+.korc__copyic{width:12px; height:12px; stroke:currentColor; fill:none; stroke-width:1.7}
+.korc__code{display:block; padding:9px 0; font-size:12px; line-height:1.6}
+/* Wrap long SPL/definition lines instead of overflowing (pre-wrap keeps the
+   internal whitespace/indent; overflow-wrap breaks very long unbroken tokens). */
+.korc__ln{display:block; white-space:pre-wrap; overflow-wrap:anywhere; padding:0 12px}
+.korc__code .t-cmd{color:var(--s-cmd)} .korc__code .t-fn{color:var(--s-fn)} .korc__code .t-kw{color:var(--s-kw)} .korc__code .t-str{color:var(--s-str)} .korc__code .t-num{color:var(--s-num)}
+
+/* trigger action chips */
+.korc__chips{display:flex; flex-wrap:wrap; gap:10px}
+.korc__chip{flex:1 1 230px; min-width:210px; background:var(--panel-hi); border:1px solid var(--border); border-radius:4px; padding:9px 12px}
+.korc__chiph{display:flex; align-items:center; gap:7px; margin-bottom:6px}
+.korc__chipnm{font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--accent)}
+.korc__chipic{width:13px; height:13px; stroke:var(--accent); fill:none; stroke-width:1.6}
+.korc__chiprows{display:grid; grid-template-columns:auto 1fr; gap:3px 10px; font-size:11.5px}
+.korc__ck{color:var(--dim); white-space:nowrap}
+.korc__cv{color:var(--text); overflow-wrap:anywhere}
+.korc__cnone{font-size:11px; color:var(--faint); font-style:italic}
+.korc__none{font-size:12px; color:var(--faint)}
+
+/* alert config */
+.korc__sev{display:inline-block; font-weight:600; color:var(--warn); border:1px solid var(--warn-br); background:var(--warn-bg); border-radius:3px; padding:1px 8px; font-size:11px}
+
+/* ── compare / diff panel (LATEST vs PREVIOUS) ───────────────── */
+.korc__diff{padding-top:6px}
+.korc__diffmeta{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 13px}
+.korc__dseal{font-size:11px; font-weight:600; letter-spacing:.02em; padding:3px 9px; border-radius:3px; border:1px solid var(--border-st); white-space:nowrap}
+.korc__dseal.prev{color:var(--accent); border-color:var(--acc-br); background:var(--acc-bg)}
+.korc__dseal.latest{color:var(--ok); border-color:var(--ok-br); background:var(--ok-bg)}
+.korc__darrow{color:var(--faint)}
+.korc__dcounts{display:inline-flex; gap:6px; margin-left:2px; flex-wrap:wrap}
+.korc__cpill{font-size:10.5px; font-weight:600; padding:2px 8px; border-radius:10px; border:1px solid}
+.korc__cpill.chg{color:var(--warn); border-color:var(--warn-br); background:var(--warn-bg)}
+.korc__cpill.add{color:var(--ok); border-color:var(--ok-br); background:var(--ok-bg)}
+.korc__cpill.del{color:var(--off); border-color:var(--off-br); background:var(--off-bg)}
+
+/* field-change rows */
+.korc__drows{margin-top:2px}
+.korc__drows .korc__dv{border-left:2px solid transparent; padding-left:9px}
+.korc__dv.chg{border-left-color:var(--warn)}
+.korc__dv.add{border-left-color:var(--ok)}
+.korc__dv.del{border-left-color:var(--off)}
+.korc__dwas{color:var(--dim); text-decoration:line-through; opacity:.85; overflow-wrap:anywhere}
+.korc__dnow{color:var(--text-strong); overflow-wrap:anywhere}
+.korc__darrow2{color:var(--faint)}
+.korc__dmut{color:var(--faint)}
+
+/* primary code-field line diff */
+.korc__cdiff{margin-top:4px}
+.korc__cdcode .korc__ln{display:flex; gap:8px; padding:0 12px; white-space:pre-wrap; align-items:flex-start}
+.korc__cdcode .korc__ln code{min-width:0; overflow-wrap:anywhere; white-space:pre-wrap}
+.korc__dgut{width:9px; flex:none; text-align:center; color:var(--faint); user-select:none}
+.korc__dl-add{background:var(--ok-bg)} .korc__dl-add .korc__dgut{color:var(--ok)}
+.korc__dl-del{background:var(--off-bg)} .korc__dl-del .korc__dgut{color:var(--off)}
+.korc__dl-del code{opacity:.85}

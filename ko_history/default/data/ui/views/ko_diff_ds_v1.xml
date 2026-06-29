@@ -1,0 +1,30 @@
+<dashboard version="2" theme="dark">
+  <label>Service Overview (Test v1)</label>
+  <definition><![CDATA[
+{
+  "title": "Service Overview (Test v1)",
+  "description": "Test fixture v1 for the Dashboard Diff viz (Dashboard Studio).",
+  "visualizations": {
+    "viz_req": { "type": "splunk.singlevalue", "title": "Requests", "dataSources": { "primary": "ds_req" } },
+    "viz_lat": { "type": "splunk.line", "title": "Latency", "dataSources": { "primary": "ds_lat" } },
+    "viz_notes": { "type": "splunk.markdown", "options": { "markdown": "# Notes\nBaseline service notes." } },
+    "viz_err": { "type": "splunk.table", "title": "Errors", "dataSources": { "primary": "ds_err" } }
+  },
+  "dataSources": {
+    "ds_req": { "type": "ds.search", "options": { "query": "| makeresults | eval Requests=42 | table Requests" } },
+    "ds_lat": { "type": "ds.search", "options": { "query": "index=_internal | timechart count as latency" } },
+    "ds_err": { "type": "ds.search", "options": { "query": "index=_internal log_level=ERROR | table _time component" } }
+  },
+  "layout": {
+    "type": "absolute",
+    "options": { "width": 1200, "height": 600 },
+    "structure": [
+      { "item": "viz_req", "type": "block", "position": { "x": 0, "y": 0, "w": 300, "h": 200 } },
+      { "item": "viz_lat", "type": "block", "position": { "x": 320, "y": 0, "w": 880, "h": 200 } },
+      { "item": "viz_notes", "type": "block", "position": { "x": 0, "y": 220, "w": 300, "h": 360 } },
+      { "item": "viz_err", "type": "block", "position": { "x": 320, "y": 220, "w": 880, "h": 360 } }
+    ]
+  }
+}
+  ]]></definition>
+</dashboard>

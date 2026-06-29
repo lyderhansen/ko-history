@@ -1,0 +1,8 @@
+# Build inputs & outputs
+node_modules/
+dist/
+
+# OS / editor cruft
+.DS_Store
+._*
+*.bak

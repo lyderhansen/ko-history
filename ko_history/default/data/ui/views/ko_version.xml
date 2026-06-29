@@ -1,0 +1,323 @@
+<form theme="dark" version="1.1">
+  <label>KO Version</label>
+  <description>Audit and recover dashboards, reports, and alerts by browsing the version history captured in index=ko_history.</description>
+  <fieldset submitButton="false">
+    <input type="time" token="timePicker">
+      <label></label>
+      <default>
+        <earliest>0</earliest>
+        <latest></latest>
+      </default>
+    </input>
+    <input type="dropdown" token="selectUser">
+      <label>Select User</label>
+      <choice value="*">All</choice>
+      <default>*</default>
+      <fieldForLabel>owner</fieldForLabel>
+      <fieldForValue>owner</fieldForValue>
+      <search base="baseSearch">
+        <query>| stats c by owner</query>
+      </search>
+    </input>
+    <input type="text" token="searchForDashboard" searchWhenChanged="true">
+      <label>Search dashboard label/title</label>
+      <default>*</default>
+      <prefix>*</prefix>
+      <suffix>*</suffix>
+    </input>
+    <input type="multiselect" token="selectApp" id="resizeMultiSelectInput">
+      <label>Select App</label>
+      <choice value="*">All</choice>
+      <fieldForLabel>appName</fieldForLabel>
+      <fieldForValue>appName</fieldForValue>
+      <search base="baseSearch">
+        <query>| search label="$searchForDashboard$" OR title="$searchForDashboard$" owner="$selectUser$"
+| stats c by appName</query>
+      </search>
+      <default>*</default>
+      <delimiter> ,</delimiter>
+      <valuePrefix>"</valuePrefix>
+      <valueSuffix>"</valueSuffix>
+    </input>
+    <input type="dropdown" token="koType">
+      <label>Type</label>
+      <choice value="*">All</choice>
+      <choice value="ko_views_xml_backup,ko_all_delete_audit">Views</choice>
+      <choice value="ko_reports_and_alerts_backup,ko_all_delete_audit">Reports and alerts</choice>
+      <default>ko_views_xml_backup,ko_all_delete_audit</default>
+      <initialValue>ko_views_xml_backup,ko_all_delete_audit</initialValue>
+      <change>
+        <condition label="Views">
+          <unset token="link_title">$row.title$</unset>
+          <unset token="showDrilldown"></unset>
+          <set token="data_type">dashboards</set>
+          <set token="table_view">_time label title owner appName latestSharing latestMethod history</set>
+        </condition>
+        <condition label="Reports and alerts">
+          <unset token="link_title">$row.title$</unset>
+          <unset token="showDrilldown"></unset>
+          <set token="data_type">reports and alerts</set>
+          <set token="table_view">_time title type owner description actions email next_scheduled_time appName sharing latestMethod history alert.expires alert.severity</set>
+        </condition>
+      </change>
+    </input>
+    <input type="dropdown" token="DeletedToken">
+      <label>Latest Method</label>
+      <choice value="DELETE">DELETE</choice>
+      <choice value="updated">Updated</choice>
+      <choice value="move">Move</choice>
+      <choice value="*">All</choice>
+      <default>*</default>
+    </input>
+  </fieldset>
+  <row>
+    <panel>
+      <title>Total amount of $data_type$ in app: $selectApp$</title>
+      <single>
+        <search base="baseSearch">
+          <query>| search source IN ($koType$)
+| search label="$searchForDashboard$" OR title="$searchForDashboard$" appName IN ($selectApp$) owner="$selectUser$" latestMethod="$DeletedToken$"
+| stats c</query>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Count of active $data_type$ in Top 10 apps (unique titles)</title>
+      <chart>
+        <search base="baseSearch">
+          <query>| search source IN ($koType$) method!="delete" owner="$selectUser$" latestMethod="$DeletedToken$"
+| stats dc(title) as dc by appName
+| sort - dc
+| head 10</query>
+        </search>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+        <option name="charting.axisTitleY.visibility">collapsed</option>
+        <option name="charting.chart">bar</option>
+        <option name="charting.chart.showDataLabels">all</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="height">216</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Deleted $data_type$</title>
+      <single>
+        <search base="baseSearch">
+          <query>| search source IN ($koType$) owner="$selectUser$"
+| search latestMethod="DELETE"
+| stats c</query>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="rangeColors">["0xdc4e41","0xdc4e41"]</option>
+        <option name="rangeValues">[0]</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+  </row>
+  <row depends="$link_title$">
+    <panel>
+      <html>
+        <h2>
+          Open dashboard: <a href="/app/$link_app$/$link_title$" target="_blank">$link_title$</a>
+        </h2>
+      </html>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <table>
+        <title>$data_type$ — click a row to inspect version history</title>
+        <search base="baseSearch">
+          <query>| search source IN ($koType$)
+| fillnull value=n/a
+| search label="$searchForDashboard$" OR title="$searchForDashboard$" appName IN ($selectApp$) owner="$selectUser$" latestMethod="$DeletedToken$"
+| sort - _time
+```Combining email to and cc into one field```
+| eval email='action.email.to'.if('action.email.cc'!="n/a",", ".'action.email.cc',"")
+| table $table_view$
+```Only showing next two scheduled times for reports```
+| eval next_scheduled_time=mvindex(next_scheduled_time, 0,1)
+``` shortening the history mv field```
+| eventstats c(history) as count_all by title appName
+| eval _n=mvcount(history)
+| eval _oldest=mvindex(history,_n-1)
+| eval _oldest=if(match(_oldest,"- updated"),replace(_oldest,"updated","created"),_oldest)
+| eval _counter=if(_n&gt;5,(_n-5)." more updates",null())
+| eval history=case(_n=1, _oldest, _n&lt;=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))
+| eval method=case(count_all=1 AND match(method,"updated"), replace(method,"updated","created"),1==1, method)
+| eval latestMethod=case(count_all=1 AND match(latestMethod,"updated"), replace(latestMethod,"updated","created"),1==1, latestMethod)
+| fields - count_all _n _oldest _counter</query>
+        </search>
+        <option name="count">25</option>
+        <option name="drilldown">cell</option>
+        <option name="rowNumbers">true</option>
+        <format type="color" field="latestMethod">
+          <colorPalette type="map">{"DELETE":#AF575A,"updated":#0099E0,"MOVE":#88527D,"created":#55C169}</colorPalette>
+        </format>
+        <format type="color" field="latestSharing">
+          <colorPalette type="map">{"user":#AF575A,"app":#0099E0,"global":#E3723A,"n/a":#CBA700}</colorPalette>
+        </format>
+        <drilldown>
+          <set token="drilldownTitle">$row.title$</set>
+          <set token="link_title">$row.title$</set>
+          <set token="link_app">$row.appName$</set>
+          <set token="showDrilldown">1</set>
+        </drilldown>
+      </table>
+    </panel>
+  </row>
+  <row depends="$showDrilldown$">
+    <panel>
+      <table>
+        <title>Versions of "$drilldownTitle$" — click a row to diff</title>
+        <search base="baseSearchDataView">
+          <query>| table _time</query>
+        </search>
+        <option name="drilldown">cell</option>
+        <drilldown>
+          <set token="showDrilldown_diffPanel">1</set>
+          <eval token="time">$click.value$</eval>
+        </drilldown>
+      </table>
+    </panel>
+    <panel>
+      <title>Rendered preview — latest version</title>
+      <viz type="ko_history.dashboard_preview">
+        <search base="baseSearchPreview">
+          <query>| head 1
+| eval role="target"
+| table role _time data appName</query>
+        </search>
+        <option name="ko_history.dashboard_preview.dataField">data</option>
+        <option name="ko_history.dashboard_preview.roleField">role</option>
+        <option name="ko_history.dashboard_preview.appField">appName</option>
+        <option name="ko_history.dashboard_preview.appDefault">$link_app$</option>
+        <option name="ko_history.dashboard_preview.previewSlot">kohist_current</option>
+        <option name="ko_history.dashboard_preview.showHighlights">false</option>
+        <option name="ko_history.dashboard_preview.showChangeList">false</option>
+        <option name="ko_history.dashboard_preview.showSourceDiff">false</option>
+        <option name="ko_history.dashboard_preview.showBlend">false</option>
+        <option name="ko_history.dashboard_preview.scale">0.7</option>
+        <option name="ko_history.dashboard_preview.background">transparent</option>
+        <option name="height">500</option>
+      </viz>
+    </panel>
+  </row>
+  <row depends="$showDrilldown_diffPanel$">
+    <panel>
+      <title>Textual diff — selected version vs previous</title>
+      <table>
+        <search base="baseSearchDataView">
+          <query>where _time&lt;=$time$
+| head 2
+| diff position1=2 position2=1</query>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+    <panel>
+      <title>Visual diff — selected version vs previous</title>
+      <viz type="ko_history.dashboard_preview">
+        <search base="baseSearchPreview">
+          <query>where _time&lt;=$time$
+| head 2
+| streamstats count as n
+| eval role=if(n=1,"target","baseline")
+| table role _time data appName</query>
+        </search>
+        <option name="ko_history.dashboard_preview.dataField">data</option>
+        <option name="ko_history.dashboard_preview.roleField">role</option>
+        <option name="ko_history.dashboard_preview.baselineValue">baseline</option>
+        <option name="ko_history.dashboard_preview.targetValue">target</option>
+        <option name="ko_history.dashboard_preview.appField">appName</option>
+        <option name="ko_history.dashboard_preview.previewSlot">kohist_selected</option>
+        <option name="ko_history.dashboard_preview.showHighlights">true</option>
+        <option name="ko_history.dashboard_preview.showChangeList">true</option>
+        <option name="ko_history.dashboard_preview.showSourceDiff">false</option>
+        <option name="ko_history.dashboard_preview.showBlend">false</option>
+        <option name="ko_history.dashboard_preview.scale">0.7</option>
+        <option name="ko_history.dashboard_preview.background">transparent</option>
+        <option name="height">500</option>
+      </viz>
+    </panel>
+  </row>
+  <row depends="$hidden$">
+    <panel>
+      <title>Hidden — drilldown source (raw XML extraction for diff panel)</title>
+      <table>
+        <search id="baseSearchDataView">
+          <query>index="ko_history" source IN ($koType$) title="$drilldownTitle$"
+| rex mode=sed "s/^.*?data=\"//"
+| rex mode=sed "s/\", type=views[\s\S]*//"
+| eval _raw=replace(_raw,"\\\\(.)","\1")
+| table _time _raw
+| sort - _time</query>
+          <earliest>$timePicker.earliest$</earliest>
+          <latest>$timePicker.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+      </table>
+    </panel>
+    <panel>
+      <title>Hidden — drilldown source (clean data field for preview viz)</title>
+      <table>
+        <search id="baseSearchPreview">
+          <query>index="ko_history" source IN ($koType$) title="$drilldownTitle$"
+| eval data=replace(data,"\\\\(.)","\1")
+| table _time data appName
+| sort - _time</query>
+          <earliest>$timePicker.earliest$</earliest>
+          <latest>$timePicker.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+      </table>
+    </panel>
+    <panel>
+      <title>Hidden BaseSearch</title>
+      <table>
+        <search id="baseSearch">
+          <query>index="ko_history" source IN ($koType$)
+| rex field=uri "\/en-\w\w\/splunkd\/__raw\/servicesNS\/.*?\/(?&lt;appName&gt;.+?)\/"
+| rex field=uri "/servicesNS/.*?\/(?&lt;appName&gt;.*?)/data/ui/views/"
+| rex "(?&lt;method&gt;updated)"
+```Removing URL-encoded characters from the file field```
+| rex mode=sed field=file "s/%20/ /g"
+| rex mode=sed field=file "s/%3A/:/g"
+| rex mode=sed field=file "s/%21/!/g"
+| eval title = coalesce(title,file,dashboard), appName=coalesce(appName,app)
+| table now _time updated title config_type type sharing owner method source description appName actions action.email.message.alert action.email.to action.email.cc alert.expires alert.severity next_scheduled_time search data label userName
+| eval time=strftime(_time,"%F %T"),
+       history=time." - ".method
+| stats latest(_time) as _time latest(method) as latestMethod latest(sharing) as latestSharing values(*) as * by title appName
+| search title=*
+| table _time updated title config_type type sharing latestSharing owner method latestMethod history source description appName actions action.email.message.alert action.email.to action.email.cc alert.expires alert.severity next_scheduled_time search data label userName</query>
+          <earliest>$timePicker.earliest$</earliest>
+          <latest>$timePicker.latest$</latest>
+        </search>
+        <option name="count">1</option>
+        <option name="drilldown">none</option>
+      </table>
+    </panel>
+    <panel>
+      <html>
+        <style>
+          #resizeMultiSelectInput div[data-component="splunk-core:/splunkjs/mvc/components/MultiDropdown"]{
+            width: 100% !important;
+          }
+          #resizeMultiSelectInput div[data-view="splunkjs/mvc/multidropdownview"]{
+            width: 100% !important;
+            margin-right: auto !important;
+          }
+          .fieldset .input{
+            width: auto !important;
+          }
+        </style>
+      </html>
+    </panel>
+  </row>
+</form>

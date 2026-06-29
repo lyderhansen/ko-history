@@ -1,0 +1,106 @@
+<form class="splunk-formatter-section" section-label="Data configurations">
+
+    <splunk-control-group label="Source Field" help="Result column holding the JSON or XML source to render (e.g. the eai:data envelope). Required.">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.dataField" value="data">
+        </splunk-text-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Path Field" help="Optional column shown in the header path (e.g. the dashboard/view id). Leave as-is if absent.">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.pathField" value="title">
+        </splunk-text-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="App Field" help="Optional column shown as the leading app segment of the header path.">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.appField" value="app">
+        </splunk-text-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Role Field" help="Diff mode: column that tags which row is the baseline vs target version. If absent and two rows are returned, row 1 = target, row 2 = baseline.">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.roleField" value="role">
+        </splunk-text-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Baseline / Target values" help="The role-column values identifying the older (baseline) and newer (target) version.">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.baselineValue" value="baseline">
+        </splunk-text-input>
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.targetValue" value="target">
+        </splunk-text-input>
+    </splunk-control-group>
+
+</form>
+
+<form class="splunk-formatter-section" section-label="Data display">
+
+    <splunk-control-group label="Mode" help="Single source, or diff two versions. Auto = diff when the search returns two versions (a role column, or two rows), else single source.">
+        <splunk-radio-input name="{{VIZ_NAMESPACE}}.mode" value="auto">
+            <option value="auto">Auto</option>
+            <option value="single">Single source</option>
+            <option value="diff">Diff (two versions)</option>
+        </splunk-radio-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Diff Layout" help="When diffing: side-by-side split, or a unified +/- listing.">
+        <splunk-radio-input name="{{VIZ_NAMESPACE}}.diffView" value="split">
+            <option value="split">Split</option>
+            <option value="unified">Unified</option>
+        </splunk-radio-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Indent" help="Spaces per indent level when pretty-printing JSON / XML.">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.indent" value="2">
+        </splunk-text-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Initial Depth" help="How many nesting levels to show on load. 0 = collapse everything to the root; 1 = show one level; blank/-1 = fully expanded.">
+        <splunk-text-input name="{{VIZ_NAMESPACE}}.initialDepth" value="0">
+        </splunk-text-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Line Numbers" help="Show the perforated line-number gutter.">
+        <splunk-radio-input name="{{VIZ_NAMESPACE}}.showLineNumbers" value="true">
+            <option value="true">On</option>
+            <option value="false">Off</option>
+        </splunk-radio-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Footer" help="Show the chain-of-custody summary bar (validity, depth, indent, length).">
+        <splunk-radio-input name="{{VIZ_NAMESPACE}}.showFooter" value="true">
+            <option value="true">On</option>
+            <option value="false">Off</option>
+        </splunk-radio-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Soft Wrap" help="Wrap long lines instead of scrolling horizontally.">
+        <splunk-radio-input name="{{VIZ_NAMESPACE}}.wrap" value="false">
+            <option value="true">On</option>
+            <option value="false">Off</option>
+        </splunk-radio-input>
+    </splunk-control-group>
+
+</form>
+
+<form class="splunk-formatter-section" section-label="Color and style">
+
+    <splunk-control-group label="Theme" help="Color scheme. Auto follows the dashboard's theme.">
+        <splunk-radio-input name="{{VIZ_NAMESPACE}}.themeMode" value="auto">
+            <option value="auto">Auto</option>
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+        </splunk-radio-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Printer Banding" help="Faint 2-row alternating band (green-bar line-printer paper). Turn off for a flat background.">
+        <splunk-radio-input name="{{VIZ_NAMESPACE}}.banding" value="true">
+            <option value="true">On</option>
+            <option value="false">Off</option>
+        </splunk-radio-input>
+    </splunk-control-group>
+
+    <splunk-control-group label="Copy Button" help="Show the copy-to-clipboard button in the header.">
+        <splunk-radio-input name="{{VIZ_NAMESPACE}}.showCopy" value="true">
+            <option value="true">On</option>
+            <option value="false">Off</option>
+        </splunk-radio-input>
+    </splunk-control-group>
+
+</form>
