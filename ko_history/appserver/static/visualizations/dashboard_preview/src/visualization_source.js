@@ -22,9 +22,8 @@
  *     written when the experimental blend mode is enabled.
  */
 define([
-    'api/SplunkVisualizationBase',
-    'api/SplunkVisualizationUtils'
-], function(SplunkVisualizationBase, SplunkVisualizationUtils) {
+    'api/SplunkVisualizationBase'
+], function(SplunkVisualizationBase) {
 
     // This viz ships inside the ko_history app, so preview slots are written
     // into ko_history's own data/ui/views. Never user-configurable.
@@ -45,10 +44,15 @@ define([
             return s ? '_' + s : '';
         } catch (e) { return ''; }
     }());
+    // Sanitized username without the leading underscore — used for {user}
+    // substitution in custom previewSlot values.
+    var _sanitizedUser = _userSuffix ? _userSuffix.slice(1) : '';
 
     // Default previewSlot — per-user so concurrent compares don't collide.
-    // Custom slot names (via formatter config) should also include something
-    // user-unique; only this default is automatically suffixed.
+    // Custom slot names (via formatter config) may include the literal token
+    // {user}, which the viz replaces with the sanitized current username — e.g.
+    // kohist_current_{user}. Without {user} the value is used as-is (today's
+    // behavior). Only this default is automatically suffixed.
     var DEFAULT_PREVIEW_SLOT = 'dashboard_preview_slot' + _userSuffix;
 
     // ── Generic pure helpers ────────────────────────────────────
@@ -78,6 +82,17 @@ define([
             h2 = ((hi << 16) | (lo & 0xFFFF)) >>> 0;
         }
         return (h1 >>> 0).toString(36) + '_' + h2.toString(36);
+    }
+
+    // Bounded key-set helper for approval/rejection tracking (D6 fix).
+    // Caps at maxSize entries by evicting the oldest (FIFO).
+    // `order` is a parallel array that tracks insertion order for the `obj` map.
+    function mapSet(obj, order, key, maxSize) {
+        if (!Object.prototype.hasOwnProperty.call(obj, key)) {
+            order.push(key);
+            if (order.length > maxSize) { delete obj[order.shift()]; }
+        }
+        obj[key] = true;
     }
 
     // True when the viz runs in a sandboxed iframe without allow-same-origin.
@@ -173,12 +188,16 @@ define([
     // Reject after `ms` so a splunkd write that never responds (Dashboard
     // Studio sandbox, SSO redirect, proxy buffering) surfaces an error
     // instead of hanging the panel on "Writing…" forever.
+    // Returns {promise, cancel} — caller MUST call cancel() when the write
+    // wins the race so the timer is cleared (D7 fix).
     function rejectAfter(ms) {
-        return new Promise(function(_resolve, reject) {
-            setTimeout(function() {
+        var timer;
+        var p = new Promise(function(_resolve, reject) {
+            timer = setTimeout(function() {
                 reject(new Error('write timed out after ' + ms + 'ms — splunkd did not respond'));
             }, ms);
         });
+        return { promise: p, cancel: function() { clearTimeout(timer); } };
     }
 
     // ── Source inspection / parsing ─────────────────────────────
@@ -442,9 +461,12 @@ define([
             this.baseIframe = document.createElement('iframe');
             this.baseIframe.className = 'dashboard-preview-viz__frame dashboard-preview-viz__frame--base';
             this.baseIframe.setAttribute('allowfullscreen', 'true');
-            // Sandbox: allow scripts + same-origin (needed for dashboard render and
-            // highlight injection) + forms; blocks top-navigation, popups, downloads,
-            // pointer-lock, and modals from snapshot-derived content.
+            // NOTE: allow-scripts + allow-same-origin on a same-origin iframe is
+            // effectively no sandbox (scripts can remove the sandbox attribute).
+            // Real protection is: (1) server-side view sanitization — Splunk strips
+            // executable content on write; (2) the explicit user approval gate before
+            // any write. The attribute is kept to block top-navigation, popups, and
+            // downloads from snapshot-derived content.
             this.baseIframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
             this.baseIframe.src = 'about:blank';
             this.baseIframe.style.display = 'none';
@@ -454,9 +476,12 @@ define([
             this.iframe = document.createElement('iframe');
             this.iframe.className = 'dashboard-preview-viz__frame dashboard-preview-viz__frame--target';
             this.iframe.setAttribute('allowfullscreen', 'true');
-            // Sandbox: allow scripts + same-origin (needed for dashboard render and
-            // highlight injection) + forms; blocks top-navigation, popups, downloads,
-            // pointer-lock, and modals from snapshot-derived content.
+            // NOTE: allow-scripts + allow-same-origin on a same-origin iframe is
+            // effectively no sandbox (scripts can remove the sandbox attribute).
+            // Real protection is: (1) server-side view sanitization — Splunk strips
+            // executable content on write; (2) the explicit user approval gate before
+            // any write. The attribute is kept to block top-navigation, popups, and
+            // downloads from snapshot-derived content.
             this.iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
             this.iframe.src = 'about:blank';
             this.frameWrap.appendChild(this.iframe);
@@ -472,13 +497,12 @@ define([
             this.el.appendChild(this.overlay);
 
             // State
-            this._lastGoodData = null;
             this._lastUrl = null;
             this._lastBaseUrl = null;
             this._lastScale = null;
             this._lastBg = null;
-            this._approvedKeys = {};
-            this._rejectedKeys = {};
+            this._approvedKeys = {};  this._approvedOrder = [];
+            this._rejectedKeys = {};  this._rejectedOrder = [];
             this._inflightKey = null;
             this._writtenKey = null;       // write-key currently rendered
             this._lastDiffKey = null;      // diff inputs currently shown
@@ -494,14 +518,12 @@ define([
 
         formatData: function(data) {
             if (!data || !data.rows || data.rows.length === 0) {
-                this._lastGoodData = null;
                 return { empty: true, colIdx: {}, rows: [] };
             }
             var fields = data.fields || [];
             var colIdx = {};
             for (var i = 0; i < fields.length; i++) colIdx[fields[i].name] = i;
             var result = { empty: false, colIdx: colIdx, rows: data.rows };
-            this._lastGoodData = result;
             return result;
         },
 
@@ -518,8 +540,8 @@ define([
                 targetValue:  config[ns + 'targetValue'] || 'target',
                 appField:     config[ns + 'appField'] || 'app',
                 appDefault:   config[ns + 'appDefault'] || 'search',
-                previewSlot:  config[ns + 'previewSlot'] || DEFAULT_PREVIEW_SLOT,
-                baselineSlot: config[ns + 'baselineSlot'] || 'dashboard_preview_slot_baseline',
+                previewSlot:  (config[ns + 'previewSlot'] || DEFAULT_PREVIEW_SLOT).replace(/\{user\}/g, _sanitizedUser),
+                baselineSlot: (config[ns + 'baselineSlot'] || 'dashboard_preview_slot_baseline').replace(/\{user\}/g, _sanitizedUser),
                 urlParams:    config[ns + 'urlParams'] ||
                     'hideEdit=true&hideTitle=true&hideFilters=true&hideSplunkBar=true&hideFooter=true&hideAppBar=true&hideChrome=true',
                 hlSelector:   config[ns + 'highlightSelector'] || '',
@@ -572,7 +594,8 @@ define([
             // What must be WRITTEN (needs approval): target always; baseline only for blend.
             var writeKey = targetHash + (c.showBlend ? ('+' + baseHash) : '');
             // What drives the DIFF (no approval needed): baseline + target content.
-            var diffKey = hashString((pick.baselineXml || '') + '||' + pick.targetXml);
+            // Hash separately to avoid a concat copy of potentially large strings (D8 fix).
+            var diffKey = hashString(pick.baselineXml || '') + ':' + hashString(pick.targetXml);
 
             this._pending = { c: c, pick: pick, writeKey: writeKey, diffKey: diffKey,
                               targetHash: targetHash, baseHash: baseHash };
@@ -581,7 +604,9 @@ define([
                 // Already rendered this write set. Refresh diff if inputs changed.
                 this._hideOverlay();
                 this.iframe.style.visibility = 'visible';
-                if (diffKey !== this._lastDiffKey) this._renderDiff();
+                // D9 fix: also re-inject iframe highlight boxes when diff inputs changed
+                // (without this, the boxes show the previous baseline's diff).
+                if (diffKey !== this._lastDiffKey) { this._renderDiff(); this._scheduleHighlightInjection(); }
                 return;
             }
             if (writeKey === this._inflightKey) return;
@@ -686,8 +711,8 @@ define([
             this.overlay.appendChild(card);
 
             var self = this, key = p.writeKey;
-            approveBtn.addEventListener('click', function() { self._approvedKeys[key] = true; self._performWrite(); });
-            rejectBtn.addEventListener('click', function() { self._rejectedKeys[key] = true; self._showRejected(); });
+            approveBtn.addEventListener('click', function() { mapSet(self._approvedKeys, self._approvedOrder, key, 50); self._performWrite(); });
+            rejectBtn.addEventListener('click', function() { mapSet(self._rejectedKeys, self._rejectedOrder, key, 50); self._showRejected(); });
         },
 
         _showRejected: function() {
@@ -706,7 +731,7 @@ define([
             this.overlay.appendChild(card);
             var self = this, key = p.writeKey;
             approveBtn.addEventListener('click', function() {
-                delete self._rejectedKeys[key]; self._approvedKeys[key] = true; self._performWrite();
+                delete self._rejectedKeys[key]; mapSet(self._approvedKeys, self._approvedOrder, key, 50); self._performWrite();
             });
         },
 
@@ -722,7 +747,10 @@ define([
                 writes.push(upsertView(p.c.baselineSlot, p.pick.baselineXml));
             }
 
-            Promise.race([Promise.all(writes), rejectAfter(20000)]).then(function() {
+            var _timeout = rejectAfter(20000);
+            Promise.race([Promise.all(writes), _timeout.promise]).then(function() {
+                _timeout.cancel();
+                if (self._removed) return;  // D5: viz torn down while write was in-flight
                 if (self._inflightKey !== key) return;
                 var url = buildPreviewUrl(p.c.previewSlot, p.c.urlParams, p.targetHash);
                 if (url !== self._lastUrl) { self.iframe.src = url; self._lastUrl = url; }
@@ -744,6 +772,8 @@ define([
                 self._renderDiff();
                 self._scheduleHighlightInjection();
             })['catch'](function(err) {
+                _timeout.cancel();
+                if (self._removed) return;  // D5: viz torn down while write was in-flight
                 if (self._inflightKey !== key) return;
                 self._inflightKey = null;
                 var msg = (err && err.message) ? err.message : String(err);
@@ -947,11 +977,9 @@ define([
                 if (found && found.length) {
                     var arr = [];
                     for (var j = 0; j < found.length; j++) arr.push(found[j]);
-                    this._panelSelectorUsed = selectors[i];
                     return arr;
                 }
             }
-            this._panelSelectorUsed = '';
             return [];
         },
 
@@ -1027,14 +1055,18 @@ define([
         reflow: function() { /* iframes + injected highlights are CSS-anchored */ },
 
         remove: function() {
+            // Signal any in-flight _performWrite callbacks to bail out immediately
+            // rather than mutating the removed viz's DOM or re-arming the highlight
+            // timer (D5 fix).
+            this._removed = true;
+            this._inflightKey = null;
             if (this._hlTimer) { clearInterval(this._hlTimer); this._hlTimer = null; }
             try { this.iframe.src = 'about:blank'; } catch (e) {}
             try { this.baseIframe.src = 'about:blank'; } catch (e2) {}
-            this._lastGoodData = null;
             this._lastChanges = null;
             this._pending = null;
-            this._approvedKeys = null;
-            this._rejectedKeys = null;
+            this._approvedKeys = null;  this._approvedOrder = null;
+            this._rejectedKeys = null;  this._rejectedOrder = null;
             if (SplunkVisualizationBase.prototype.remove) {
                 SplunkVisualizationBase.prototype.remove.apply(this, arguments);
             }

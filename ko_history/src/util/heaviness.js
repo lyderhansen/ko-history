@@ -71,7 +71,7 @@ function worstRange(ranges) {
 function detectFormat(raw) {
     const s = String(raw == null ? '' : raw);
     const t = s.replace(/^[﻿\s]+/, '');
-    if (/<definition\b/i.test(s)) return t.charAt(0) === '<' ? 'Dashboard Studio' : 'Dashboard Studio';
+    if (/<definition\b/i.test(s)) return 'Dashboard Studio';
     if (t.charAt(0) === '<') {
         return (/<dashboard[^>]*\bversion\s*=\s*["']2["']/i.test(s) || /<form[^>]*\bversion\s*=\s*["']2["']/i.test(s))
             ? 'Dashboard Studio' : 'Simple XML';

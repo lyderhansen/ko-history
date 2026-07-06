@@ -49,7 +49,7 @@ function sanitizeUsername(u) {
 
 // Returns the current Splunk username, sanitized for view-name use, or '' if unavailable.
 // Reads from @splunk/splunk-utils/config (which itself reads window.$C.USERNAME).
-export function currentUserSuffix() {
+function currentUserSuffix() {
     let raw = '';
     try {
         // @splunk/splunk-utils/config.username reads window.$C.USERNAME
@@ -170,23 +170,25 @@ export function upsertView(viewName, xmlData) {
 }
 
 // Probe whether a view (dashboard) already exists in an app. Returns a Promise
-// that resolves to true (exists) or false (not found). Used by the restore modal
+// that resolves to true (200 exists), false (404 not found), or null (any other
+// status or network error — unknown/checking state). Used by the restore modal
 // for the live name-availability check. Does NOT require write access — a GET
 // on the item endpoint returns 200 (exists) or 404 (not found).
 export function viewExists(appName, viewName) {
     const url = rawUrl('/servicesNS/nobody/' + encodeURIComponent(appName) + '/data/ui/views/' + encodeURIComponent(viewName)) + '?output_mode=json';
     return fetch(url, { method: 'GET', credentials: 'same-origin', headers: headers() })
-        .then((r) => r.status !== 404)
-        .catch(() => false);
+        .then((r) => r.status === 200 ? true : r.status === 404 ? false : null)
+        .catch(() => null);
 }
 
 // Probe whether a saved search already exists in an app. Returns a Promise
-// resolving to true (exists) or false (not found).
+// resolving to true (200 exists), false (404 not found), or null (any other
+// status or network error — unknown/checking state).
 export function savedSearchExists(appName, name) {
     const url = rawUrl('/servicesNS/nobody/' + encodeURIComponent(appName) + '/saved/searches/' + encodeURIComponent(name)) + '?output_mode=json';
     return fetch(url, { method: 'GET', credentials: 'same-origin', headers: headers() })
-        .then((r) => r.status !== 404)
-        .catch(() => false);
+        .then((r) => r.status === 200 ? true : r.status === 404 ? false : null)
+        .catch(() => null);
 }
 
 // Create-or-overwrite a view in an ARBITRARY app. Used by Restore — this writes
@@ -247,7 +249,7 @@ const SS_RESTORE_DROP = {
 // read-only keys and any eai:* / empty values (empties would error or clobber).
 // `search` is always kept (required to create). Dotted action.*/alert.* keys pass
 // straight through — the /saved/searches endpoint accepts them verbatim.
-export function ssRestoreBody(fields) {
+function ssRestoreBody(fields) {
     const body = {};
     Object.keys(fields || {}).forEach((k) => {
         if (k.indexOf('eai:') === 0 || k.charAt(0) === '_') return;

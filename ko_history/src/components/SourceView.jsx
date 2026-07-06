@@ -63,8 +63,12 @@ function injectStyle() {
     document.head.appendChild(s);
 }
 
-function copyToClipboard(text, setCopied) {
-    const ok = () => { setCopied(true); setTimeout(() => setCopied(false), 1400); };
+function copyToClipboard(text, setCopied, timerRef) {
+    const ok = () => {
+        setCopied(true);
+        if (timerRef && timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => setCopied(false), 1400);
+    };
     try {
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(text).then(ok, legacy);
@@ -94,6 +98,8 @@ function foldedAtDepth(foldGroups, level) {
     return set;
 }
 
+const LINE_CAP = 4000;
+
 export default function SourceView({ raw, indent = 2, initialDepth = 0, title, app, banded = true }) {
     injectStyle();
     const view = React.useMemo(() => buildView(raw, indent), [raw, indent]);
@@ -103,12 +109,20 @@ export default function SourceView({ raw, indent = 2, initialDepth = 0, title, a
     const [folded, setFolded] = React.useState(() => foldedAtDepth(foldGroups, initialDepth));
     const [shownDepth, setShownDepth] = React.useState(initialDepth);
     const [copied, setCopied] = React.useState(false);
+    const [showAll, setShowAll] = React.useState(false);
+    const copyTimerRef = React.useRef(null);
 
-    // Re-seed fold state whenever the underlying source changes.
+    // Re-seed fold state and collapse show-all whenever the underlying source changes.
     React.useEffect(() => {
         setFolded(foldedAtDepth(foldGroups, initialDepth));
         setShownDepth(initialDepth);
+        setShowAll(false);
     }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Clear copy-flash timer on unmount to avoid setState after unmount.
+    React.useEffect(() => {
+        return () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current); };
+    }, []);
 
     const hasFolds = Object.keys(foldGroups).length > 0;
 
@@ -147,11 +161,22 @@ export default function SourceView({ raw, indent = 2, initialDepth = 0, title, a
 
     const bytes = (pretty || '').length;
 
-    // Render visible lines with a 2-row zebra cadence over the visible set.
+    // Collect visible (non-folded) line indices, then cap to LINE_CAP for initial render.
+    const visibleIndices = React.useMemo(() => {
+        const out = [];
+        for (let i = 0; i < lines.length; i++) {
+            if (!hidden[i]) out.push(i);
+        }
+        return out;
+    }, [lines, hidden]);
+    const totalVisible = visibleIndices.length;
+    const displayIndices = (showAll || totalVisible <= LINE_CAP) ? visibleIndices : visibleIndices.slice(0, LINE_CAP);
+
+    // Render with a 2-row zebra cadence over the displayed set.
     let visIdx = 0;
     const rows = [];
-    for (let i = 0; i < lines.length; i++) {
-        if (hidden[i]) continue;
+    for (let di = 0; di < displayIndices.length; di++) {
+        const i = displayIndices[di];
         const L = lines[i];
         const isFoldable = L.fold && foldGroups[L.fold];
         const isFolded = isFoldable && folded.has(L.fold);
@@ -169,6 +194,16 @@ export default function SourceView({ raw, indent = 2, initialDepth = 0, title, a
                 ) : (
                     <span className="kojv__code" dangerouslySetInnerHTML={{ __html: L.html }} />
                 )}
+            </div>
+        );
+    }
+    if (!showAll && totalVisible > LINE_CAP) {
+        rows.push(
+            <div key="show-all" className="kojv__line" onClick={() => setShowAll(true)} style={{ cursor: 'pointer' }}>
+                <span className="kojv__ln" />
+                <span className="kojv__code" style={{ color: 'var(--primary)' }}>
+                    {'… ' + (totalVisible - LINE_CAP).toLocaleString() + ' more lines — show all'}
+                </span>
             </div>
         );
     }
@@ -201,7 +236,7 @@ export default function SourceView({ raw, indent = 2, initialDepth = 0, title, a
                         <button type="button" title="Expand all" onClick={() => foldToDepth(-1)}>All</button>
                     </span>
                 ) : null}
-                <button type="button" className={'kojv__copy' + (copied ? ' is-copied' : '')} onClick={() => copyToClipboard(pretty, setCopied)}>
+                <button type="button" className={'kojv__copy' + (copied ? ' is-copied' : '')} onClick={() => copyToClipboard(pretty, setCopied, copyTimerRef)}>
                     {copied ? 'Copied ✓' : 'Copy'}
                 </button>
             </div>

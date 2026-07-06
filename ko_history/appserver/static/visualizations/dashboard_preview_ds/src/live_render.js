@@ -47,7 +47,6 @@ var PRESET = (function () {
 // Synthetic data shaped to a viz type → ds.test options.data (column-major).
 function mockDataFor(type) {
     type = (type || '').toLowerCase();
-    function n(v) { return v; }
     if (/single|gauge|marker|filler|radial/.test(type)) {
         return { fields: ['value'], columns: [[Math.round(40 + 60 * 0.7)]] }; // a stable-looking number
     }
@@ -128,10 +127,4 @@ function mount(container, definition, useMock) {
     return root;
 }
 
-function unmount(root) {
-    if (root && typeof root.unmount === 'function') {
-        try { root.unmount(); } catch (e) { /* ignore */ }
-    }
-}
-
-module.exports = { mount: mount, unmount: unmount };
+module.exports = { mount: mount };

@@ -11,7 +11,7 @@
 // eslint-disable-next-line import/no-commonjs
 const lineDiffCore = require('../shared/lineDiff.js');
 
-export function prettyXml(xml) {
+function prettyXml(xml) {
     if (!xml) return '';
     let s = String(xml);
     // Pretty-print the Studio definition JSON so structural changes diff per-line.

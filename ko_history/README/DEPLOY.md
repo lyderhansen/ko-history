@@ -33,6 +33,16 @@ delete-audit searches under **Settings → Searches, reports, and alerts** (app:
 Optionally run each one-time `*_backfill` search **once** to seed a snapshot of existing KOs
 (they are disabled by default and must not be scheduled — re-running duplicates snapshots).
 
+**Sizing note:** each backup search enumerates the full object list for its type via local
+REST every 15 minutes. On large search heads with thousands of KOs per type, each run
+returns thousands of rows — it is cheap (local REST, no index scan), but budget for it in
+your scheduler load and summary index ingest rate.
+
+**Optional — KO Statistics dashboard:** `ko_tracked_kos_lookup_builder` and
+`ko_usage_collector` are both disabled by default and work as a pair — enable both together
+(or neither). They capture daily per-KO access and run counts and feed the statistics
+dashboard; enabling only one is harmless but produces no useful data.
+
 ## What v1.0 restores
 
 Restore is available for **dashboards, reports, and alerts** (reports and alerts are both

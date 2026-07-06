@@ -69,8 +69,8 @@ Cloud, create the `ko_history` index via ACS / the Cloud console before installi
 
 ## Status
 
-Version **1.0.0**.
+Version **1.0.1**.
 
 ## License
 
-_TBD — see project owner._
+[Apache License 2.0](LICENSE).

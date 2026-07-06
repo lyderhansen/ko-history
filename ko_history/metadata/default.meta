@@ -1,7 +1,8 @@
 # Default permissions for the KO History app.
-# Objects are owned by admin and shared at App level (no `export = system`,
-# which would make them global). Read is open to all roles within the app;
-# write is restricted to admin / sc_admin.
+# Most objects are owned by admin and shared at App level. Read is open to all
+# roles within the app; write is restricted to admin / sc_admin. Exception: the
+# four [visualizations/*] stanzas set `export = system` by design so the custom
+# vizs appear in the viz picker of dashboards in any app, not just ko_history.
 
 []
 access = read : [ * ], write : [ admin, sc_admin ]

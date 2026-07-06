@@ -42,22 +42,27 @@
     <input type="dropdown" token="koType">
       <label>Type</label>
       <choice value="*">All</choice>
-      <choice value="ko_views_xml_backup,ko_all_delete_audit">Views</choice>
-      <choice value="ko_reports_and_alerts_backup,ko_all_delete_audit">Reports and alerts</choice>
-      <default>ko_views_xml_backup,ko_all_delete_audit</default>
-      <initialValue>ko_views_xml_backup,ko_all_delete_audit</initialValue>
+      <choice value="ko_views_xml_backup,ko_views_delete_audit,ko_all_delete_audit">Views</choice>
+      <choice value="ko_reports_and_alerts_backup,ko_reports_and_alerts_delete_audit,ko_all_delete_audit">Reports and alerts</choice>
+      <default>ko_views_xml_backup,ko_views_delete_audit,ko_all_delete_audit</default>
+      <initialValue>ko_views_xml_backup,ko_views_delete_audit,ko_all_delete_audit</initialValue>
       <change>
-        <condition label="Views">
+        <condition value="ko_views_xml_backup,ko_views_delete_audit,ko_all_delete_audit">
           <unset token="link_title">$row.title$</unset>
           <unset token="showDrilldown"></unset>
           <set token="data_type">dashboards</set>
           <set token="table_view">_time label title owner appName latestSharing latestMethod history</set>
+          <set token="koTypeFilter">views</set>
         </condition>
-        <condition label="Reports and alerts">
+        <condition value="ko_reports_and_alerts_backup,ko_reports_and_alerts_delete_audit,ko_all_delete_audit">
           <unset token="link_title">$row.title$</unset>
           <unset token="showDrilldown"></unset>
           <set token="data_type">reports and alerts</set>
           <set token="table_view">_time title type owner description actions email next_scheduled_time appName sharing latestMethod history alert.expires alert.severity</set>
+          <set token="koTypeFilter">savedsearch</set>
+        </condition>
+        <condition>
+          <set token="koTypeFilter">*</set>
         </condition>
       </change>
     </input>
@@ -196,7 +201,7 @@
         <option name="ko_history.dashboard_preview.roleField">role</option>
         <option name="ko_history.dashboard_preview.appField">appName</option>
         <option name="ko_history.dashboard_preview.appDefault">$link_app$</option>
-        <option name="ko_history.dashboard_preview.previewSlot">kohist_current</option>
+        <option name="ko_history.dashboard_preview.previewSlot">kohist_current_{user}</option>
         <option name="ko_history.dashboard_preview.showHighlights">false</option>
         <option name="ko_history.dashboard_preview.showChangeList">false</option>
         <option name="ko_history.dashboard_preview.showSourceDiff">false</option>
@@ -235,7 +240,7 @@
         <option name="ko_history.dashboard_preview.baselineValue">baseline</option>
         <option name="ko_history.dashboard_preview.targetValue">target</option>
         <option name="ko_history.dashboard_preview.appField">appName</option>
-        <option name="ko_history.dashboard_preview.previewSlot">kohist_selected</option>
+        <option name="ko_history.dashboard_preview.previewSlot">kohist_selected_{user}</option>
         <option name="ko_history.dashboard_preview.showHighlights">true</option>
         <option name="ko_history.dashboard_preview.showChangeList">true</option>
         <option name="ko_history.dashboard_preview.showSourceDiff">false</option>
@@ -251,7 +256,7 @@
       <title>Hidden — drilldown source (raw XML extraction for diff panel)</title>
       <table>
         <search id="baseSearchDataView">
-          <query>index="ko_history" source IN ($koType$) title="$drilldownTitle$"
+          <query>index="ko_history" source IN ($koType$) NOT source="ko_usage" title="$drilldownTitle$"
 | rex mode=sed "s/^.*?data=\"//"
 | rex mode=sed "s/\", type=views[\s\S]*//"
 | eval _raw=replace(_raw,"\\\\(.)","\1")
@@ -267,7 +272,7 @@
       <title>Hidden — drilldown source (clean data field for preview viz)</title>
       <table>
         <search id="baseSearchPreview">
-          <query>index="ko_history" source IN ($koType$) title="$drilldownTitle$"
+          <query>index="ko_history" source IN ($koType$) NOT source="ko_usage" title="$drilldownTitle$"
 | eval data=replace(data,"\\\\(.)","\1")
 | table _time data appName
 | sort - _time</query>
@@ -281,7 +286,9 @@
       <title>Hidden BaseSearch</title>
       <table>
         <search id="baseSearch">
-          <query>index="ko_history" source IN ($koType$)
+          <query>index="ko_history" source IN ($koType$) NOT source="ko_usage"
+| eval type=coalesce(type, case(match(source,"views_delete_audit"),"views",match(source,"reports_and_alerts_delete_audit"),"savedsearch",match(source,"macros_delete_audit"),"macro",match(source,"eventtypes_delete_audit"),"eventtype",match(source,"fieldextractions_delete_audit"),"fieldextraction",match(source,"lookups_delete_audit"),"lookup",match(source,"tags_delete_audit"),"tag",1==1,type))
+| search type="$koTypeFilter$"
 | rex field=uri "\/en-\w\w\/splunkd\/__raw\/servicesNS\/.*?\/(?&lt;appName&gt;.+?)\/"
 | rex field=uri "/servicesNS/.*?\/(?&lt;appName&gt;.*?)/data/ui/views/"
 | rex "(?&lt;method&gt;updated)"

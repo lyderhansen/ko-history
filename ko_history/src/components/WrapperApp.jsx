@@ -1,7 +1,8 @@
 import React from 'react';
 import { SplunkThemeProvider } from '@splunk/themes';
 import { oneshot, upsertView, restoreView, upsertSavedSearch, viewExists, savedSearchExists, savedSearchUrl, listApps, viewUrl, previewUrl, splQuote, KO_INDEX, VIEW_SOURCES, REPORT_SOURCES, sourcesForClass, PREVIEW_APP, SLOT_BASELINE, SLOT_TARGET, restoreKO, koManagerUrl } from '../util/splunkRest';
-import { canRestoreClass, comingSoonLabel } from '../util/koClass';
+import { canRestoreClass } from '../util/koClass';
+import { versionSearchTerms } from '../util/versionSearchTerms';
 import { toLines, lineDiff } from '../util/diff';
 import { analyze, combineLevel } from '../util/heaviness';
 import { parseSchematic, diffSchematic } from '../util/schematic';
@@ -139,7 +140,7 @@ const SS_FIELDS = (
 // and the app filter tolerates audit rows so deletions still appear in history.
 function versionsSplSavedSearch(title, appName) {
     return (
-        `index=${splQuote(KO_INDEX)} source IN (${REPORT_SOURCE_LIST}) ` +
+        `index=${splQuote(KO_INDEX)} source IN (${REPORT_SOURCE_LIST}) ` + versionSearchTerms(title) + ' ' +
         `| eval title=coalesce(title,file), appName=coalesce(appName,app) ` +
         `| search title=${splQuote(title)} ` +
         `| where appName=${splQuote(appName)} OR isnull(appName) ` +
@@ -171,7 +172,7 @@ function extractSavedSearch(row) {
 // scopes to the class's sources (falls back to "*", title-scoped).
 function versionsSplGeneric(title, appName, sourceList) {
     return (
-        `index=${splQuote(KO_INDEX)} source IN (${sourceList}) ` +
+        `index=${splQuote(KO_INDEX)} source IN (${sourceList}) ` + versionSearchTerms(title) + ' ' +
         `| eval title=coalesce(title,file), appName=coalesce(appName,app) ` +
         `| search title=${splQuote(title)} ` +
         `| where appName=${splQuote(appName)} OR isnull(appName) ` +
@@ -213,7 +214,7 @@ function versionsSpl(title, appName) {
     // Fetch _raw and extract the XML in JS (the auto-extracted `data` field
     // truncates at an escaped quote for some dashboards). _raw is complete.
     return (
-        `index=${splQuote(KO_INDEX)} source IN (${SOURCE_LIST}) ` +
+        `index=${splQuote(KO_INDEX)} source IN (${SOURCE_LIST}) ` + versionSearchTerms(title) + ' ' +
         `| eval title=coalesce(title,file,dashboard), appName=coalesce(appName,app) ` +
         `| search title=${splQuote(title)} appName=${splQuote(appName)} ` +
         // derive method like the dashboard (backup events carry "updated") so the
@@ -577,6 +578,7 @@ export default function WrapperApp() {
     const [overlays, setOverlays] = React.useState(true);
     const [kinds, setKinds] = React.useState({ added: true, modified: true, removed: true });
     const [visualMode, setVisualMode] = React.useState('boxes'); // 'boxes' | 'blend' (#44)
+    const [hasBlended, setHasBlended] = React.useState(false); // true once blend mode is first activated this session
     const [ssCompare, setSsCompare] = React.useState(false); // saved-search compare modal (#8)
 
     // ── restore (recover a captured version back into Splunk as a real KO) ──
@@ -590,7 +592,6 @@ export default function WrapperApp() {
     const [restoreNameExists, setRestoreNameExists] = React.useState(null);
     // Whether the user has explicitly clicked "Overwrite existing" to opt-in.
     const [restoreOverwrite, setRestoreOverwrite] = React.useState(false);
-    const restoreExistCheckRef = React.useRef(null); // cancel token for the debounced check
 
     React.useEffect(() => {
         let cancelled = false;
@@ -737,6 +738,9 @@ export default function WrapperApp() {
         // tokens (and re-renders the marker markdown) asynchronously after a
         // row click, so read a few times with increasing delay to catch it.
         const onClick = () => {
+            // Clear any pending timers from the previous click before scheduling
+            // a fresh batch — prevents unbounded growth in the effect-scoped array.
+            timeouts.splice(0).forEach(clearTimeout);
             [200, 600, 1400].forEach((ms) => timeouts.push(setTimeout(readMarker, ms)));
         };
 
@@ -864,6 +868,14 @@ export default function WrapperApp() {
         if (versions.length) setRestoreIdx(0);
     }, [versions]);
 
+    // KO class drives which branch of the pane renders. isSaved = saved search;
+    // isGeneric = any other non-dashboard KO (macro, + future types). isFieldsKO
+    // = both — gates the XML-only machinery (heaviness, slot-compare, restore).
+    // Declared here (above the name-check effect) so the effect can close over
+    // them and include isSaved in its dep array without a use-before-declaration.
+    const isSaved = !!(sel && sel.koClass === 'savedsearch');
+    const isGeneric = !!(sel && sel.koClass !== 'dashboard' && sel.koClass !== 'savedsearch');
+
     // Debounced live name-availability check (~400 ms). Fires whenever restoreApp
     // or restoreName changes (or when the modal is opened). Resets the overwrite
     // opt-in whenever the target changes so a previous click never carries over.
@@ -876,9 +888,15 @@ export default function WrapperApp() {
         setRestoreNameExists(null); // show "checking…" immediately
         setRestoreOverwrite(false); // reset opt-in on every target change
         const token = { cancelled: false };
-        restoreExistCheckRef.current = token;
         const tid = setTimeout(() => {
             if (token.cancelled) return;
+            // Generic KOs (macro, tag, …) have no single well-known REST probe
+            // endpoint — leave the indicator in the neutral/unknown state rather
+            // than probing the wrong endpoint (viewExists).
+            if (isGeneric) {
+                if (!token.cancelled) setRestoreNameExists(null);
+                return;
+            }
             const probe = isSaved
                 ? savedSearchExists(restoreApp, restoreName)
                 : viewExists(restoreApp, restoreName);
@@ -915,11 +933,6 @@ export default function WrapperApp() {
     // audit-only DELETE/MOVE marker carries no SPL to write back).
     const restoreReady = !!(restoreVer && restoreApp && restoreName && (!restoreVer.ss || restoreVer.isConfig));
     const restoreToOrigin = !!(sel && restoreApp === sel.appName && restoreName === sel.title);
-    // KO class drives which branch of the pane renders. isSaved = saved search;
-    // isGeneric = any other non-dashboard KO (macro, + future types). isFieldsKO
-    // = both — gates the XML-only machinery (heaviness, slot-compare, restore).
-    const isSaved = !!(sel && sel.koClass === 'savedsearch');
-    const isGeneric = !!(sel && sel.koClass !== 'dashboard' && sel.koClass !== 'savedsearch');
     // v1.0: restore ships for dashboards + reports only (the 5 generic types
     // are captured/viewable but not yet restorable).
     const restoreAllowed = !!(sel && canRestoreClass(sel.koClass));
@@ -982,6 +995,7 @@ export default function WrapperApp() {
                 setCmpTab('visual');
                 setRunBase(false);
                 setRunTarget(false);
+                setHasBlended(false);
                 setCompare({
                     baseUrl: previewUrl(SLOT_BASELINE, cb),
                     targetUrl: previewUrl(SLOT_TARGET, cb),
@@ -1222,14 +1236,9 @@ export default function WrapperApp() {
                                                     <input style={ctrl} value={restoreName} onChange={(e) => setRestoreName(e.target.value)} placeholder={sel.title} spellCheck={false} />
 
                                                     <div style={{ marginTop: 12 }}>
-                                                        <button type="button" style={btn(restoreReady && restoreAllowed ? '#b8860b' : '#3c4043')} disabled={!(restoreReady && restoreAllowed)} title={restoreAllowed ? 'Restore this version' : (comingSoonLabel(sel && sel.koClass) + ' restore is coming soon')} onClick={() => restoreReady && restoreAllowed && setRestore({ busy: false, error: '' })}>
+                                                        <button type="button" style={btn(restoreReady && restoreAllowed ? '#b8860b' : '#3c4043')} disabled={!(restoreReady && restoreAllowed)} title="Restore this version" onClick={() => restoreReady && restoreAllowed && setRestore({ busy: false, error: '' })}>
                                                             ⟲ Restore…
                                                         </button>
-                                                        {isGeneric ? (
-                                                            <div style={{ marginTop: 6, fontSize: 11, color: '#9aa0a6' }}>
-                                                                ⓘ {comingSoonLabel(sel && sel.koClass)} restore is coming in a future release. This version is captured and viewable now.
-                                                            </div>
-                                                        ) : null}
                                                         <div style={{ marginTop: 6, fontSize: 11, color: '#6b7177' }}>
                                                             Writes config only · owner <b style={{ color: '#9aa0a6' }}>nobody</b> (app-shared) · sharing/owner not restored.
                                                         </div>
@@ -1294,14 +1303,9 @@ export default function WrapperApp() {
                                                     <input style={ctrl} value={restoreName} onChange={(e) => setRestoreName(e.target.value)} placeholder={sel.title} spellCheck={false} />
 
                                                     <div style={{ marginTop: 12 }}>
-                                                        <button type="button" style={btn(restoreReady && restoreAllowed ? '#b8860b' : '#3c4043')} disabled={!(restoreReady && restoreAllowed)} title={restoreAllowed ? 'Restore this version' : (comingSoonLabel(sel && sel.koClass) + ' restore is coming soon')} onClick={() => restoreReady && restoreAllowed && setRestore({ busy: false, error: '' })}>
+                                                        <button type="button" style={btn(restoreReady && restoreAllowed ? '#b8860b' : '#3c4043')} disabled={!(restoreReady && restoreAllowed)} title="Restore this version" onClick={() => restoreReady && restoreAllowed && setRestore({ busy: false, error: '' })}>
                                                             ⟲ Restore…
                                                         </button>
-                                                        {isGeneric ? (
-                                                            <div style={{ marginTop: 6, fontSize: 11, color: '#9aa0a6' }}>
-                                                                ⓘ {comingSoonLabel(sel && sel.koClass)} restore is coming in a future release. This version is captured and viewable now.
-                                                            </div>
-                                                        ) : null}
                                                         <div style={{ marginTop: 6, fontSize: 11, color: restoreToOrigin ? '#6b7177' : '#e8a87c' }}>
                                                             {restoreToOrigin ? 'Restores to its original location.' : 'Restores to a different location than origin.'}
                                                         </div>
@@ -1521,7 +1525,7 @@ export default function WrapperApp() {
                                 const modeSwitch = (
                                     <div style={{ display: 'inline-flex', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 4, overflow: 'hidden' }}>
                                         {[['boxes', 'Boxes'], ['blend', 'Blend']].map(([m, l]) => (
-                                            <button key={m} type="button" onClick={() => setVisualMode(m)} title={m === 'blend' ? 'Stack both renders and blend (difference / onion-skin)' : 'Draw change boxes on each render, side by side'} style={{ background: visualMode === m ? '#1a73e8' : 'transparent', color: '#e6e6e6', border: 0, padding: '4px 12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>{l}</button>
+                                            <button key={m} type="button" onClick={() => { setVisualMode(m); if (m === 'blend') setHasBlended(true); }} title={m === 'blend' ? 'Stack both renders and blend (difference / onion-skin)' : 'Draw change boxes on each render, side by side'} style={{ background: visualMode === m ? '#1a73e8' : 'transparent', color: '#e6e6e6', border: 0, padding: '4px 12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>{l}</button>
                                         ))}
                                     </div>
                                 );
@@ -1550,9 +1554,10 @@ export default function WrapperApp() {
                                     </div>
                                 );
                             })()}
-                            {/* Boxes pair and blend view are BOTH mounted once their run flags are set;
-                                visibility is toggled with display:none so iframes persist across
-                                mode switches and do not re-run their searches on every toggle. */}
+                            {/* Boxes pair is always visible when run flags are set. BlendView is
+                                only mounted after blend mode is first activated (hasBlended), then
+                                persisted with display:none so iframes survive mode toggles without
+                                re-running their searches. */}
                             <div style={{ display: visualMode === 'boxes' ? 'contents' : 'none' }}>
                                 <React.Fragment>
                                     {!runBase || !runTarget ? (
@@ -1575,7 +1580,7 @@ export default function WrapperApp() {
                                 </React.Fragment>
                             </div>
                             <div style={{ display: visualMode === 'blend' ? 'contents' : 'none' }}>
-                                {(runBase && runTarget) ? (
+                                {(hasBlended && runBase && runTarget) ? (
                                     <BlendView baseUrl={compare.baseUrl} targetUrl={compare.targetUrl} baseLabel={compare.baseLabel} targetLabel={compare.targetLabel} />
                                 ) : (
                                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: '#9aa0a6', background: '#0b0c10' }}>
@@ -1583,7 +1588,7 @@ export default function WrapperApp() {
                                             <HeavyBadge a={cmpBaseHeavy} label="Previous" />
                                             <HeavyBadge a={cmpTargetHeavy} label="Latest" />
                                         </div>
-                                        <button type="button" style={btn('#1a7a3f')} onClick={() => { setRunBase(true); setRunTarget(true); }}>▶ Run both to blend</button>
+                                        <button type="button" style={btn('#1a7a3f')} onClick={() => { setRunBase(true); setRunTarget(true); setHasBlended(true); }}>▶ Run both to blend</button>
                                         <span style={{ fontSize: 13, color: cmpCombined === 'heavy' ? '#f85149' : '#9aa0a6' }}>Blend stacks both live renders, so both must run{cmpCombined === 'heavy' ? ' — these look HEAVY' : ''}.</span>
                                     </div>
                                 )}
@@ -1760,6 +1765,9 @@ function BlendView({ baseUrl, targetUrl, baseLabel, targetLabel }) {
     // scroller move them together without internal iframe scroll bars.
     React.useEffect(() => {
         let cancelled = false;
+        let prevH = null;
+        let stable = 0;
+        let iv = null;
         const measure = () => {
             if (cancelled) return;
             let h = null;
@@ -1771,19 +1779,38 @@ function BlendView({ baseUrl, targetUrl, baseLabel, targetLabel }) {
                 const m = Math.max(bh || 0, th || 0);
                 if (m > 0) h = m;
             } catch (e) { /* cross-origin guard — fall back to no fixed height */ }
-            if (!cancelled) setContentH(h);
+            if (!cancelled) {
+                setContentH(h);
+                // Stop the poll once height is stable for 2 consecutive interval
+                // ticks; dashboards finish rendering within seconds of loading.
+                if (iv !== null) {
+                    if (h !== null && h === prevH) {
+                        stable += 1;
+                        if (stable >= 2) { clearInterval(iv); iv = null; }
+                    } else {
+                        stable = 0;
+                    }
+                }
+                prevH = h;
+            }
+        };
+        const onLoad = () => {
+            // Re-arm after each iframe load: heights will change as panels render.
+            stable = 0;
+            if (iv === null && !cancelled) { iv = setInterval(measure, 2000); }
+            measure();
         };
         const baseEl = baseRef.current;
         const tgtEl  = targetRef.current;
-        if (baseEl) baseEl.addEventListener('load', measure);
-        if (tgtEl)  tgtEl.addEventListener('load', measure);
+        if (baseEl) baseEl.addEventListener('load', onLoad);
+        if (tgtEl)  tgtEl.addEventListener('load', onLoad);
         measure(); // immediate attempt if already loaded
-        const iv = setInterval(measure, 2000);
+        iv = setInterval(measure, 2000);
         return () => {
             cancelled = true;
-            clearInterval(iv);
-            if (baseEl) baseEl.removeEventListener('load', measure);
-            if (tgtEl)  tgtEl.removeEventListener('load', measure);
+            if (iv !== null) clearInterval(iv);
+            if (baseEl) baseEl.removeEventListener('load', onLoad);
+            if (tgtEl)  tgtEl.removeEventListener('load', onLoad);
         };
     }, [baseUrl, targetUrl]);
 
@@ -1931,12 +1958,18 @@ function pairOps(ops) {
     return rows;
 }
 
+const DIFF_CAP = 4000;
+
 function SourceDiff({ a, b }) {
     const ops = React.useMemo(() => lineDiff(toLines(a), toLines(b)), [a, b]);
     const rows = React.useMemo(() => pairOps(ops), [ops]);
     const [mode, setMode] = React.useState('split');
+    const [showAllDiff, setShowAllDiff] = React.useState(false);
     const adds = ops.filter((o) => o.t === 'add').length;
     const dels = ops.filter((o) => o.t === 'del').length;
+
+    // Reset show-all when the diff input changes.
+    React.useEffect(() => { setShowAllDiff(false); }, [a, b]);
 
     const cellBg = (t) => (t === 'add' ? 'rgba(46,160,67,0.16)' : t === 'del' ? 'rgba(248,81,73,0.16)' : t === 'none' ? 'rgba(255,255,255,0.02)' : 'transparent');
     const cellEdge = (t) => (t === 'add' ? '#2ea043' : t === 'del' ? '#f85149' : 'transparent');
@@ -1981,11 +2014,19 @@ function SourceDiff({ a, b }) {
             </div>
             {mode === 'unified' ? (
                 <div style={{ flex: 1, overflow: 'auto', fontFamily: MONO, fontSize: 12, lineHeight: 1.5, padding: '6px 0', background: '#0b0c10' }}>
-                    {ops.map((o, i) => (
+                    {(showAllDiff || ops.length <= DIFF_CAP ? ops : ops.slice(0, DIFF_CAP)).map((o, i) => (
                         <div key={i} style={unifiedRowStyle(o.t)}>
                             {sign(o.t)} {o.line}
                         </div>
                     ))}
+                    {!showAllDiff && ops.length > DIFF_CAP ? (
+                        <div
+                            style={{ padding: '0 10px', cursor: 'pointer', color: '#4FA7D6', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+                            onClick={() => setShowAllDiff(true)}
+                        >
+                            {'… ' + (ops.length - DIFF_CAP) + ' more lines — show all'}
+                        </div>
+                    ) : null}
                 </div>
             ) : (
                 <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -1994,12 +2035,23 @@ function SourceDiff({ a, b }) {
                         <div style={{ flex: 1, padding: '4px 12px', color: '#81c995' }}>LATEST</div>
                     </div>
                     <div style={{ flex: 1, overflow: 'auto', fontFamily: MONO, fontSize: 12, lineHeight: 1.5, padding: '6px 0', background: '#0b0c10' }}>
-                        {rows.map((row, i) => (
+                        {(showAllDiff || rows.length <= DIFF_CAP ? rows : rows.slice(0, DIFF_CAP)).map((row, i) => (
                             <div key={i} style={{ display: 'flex' }}>
                                 <div style={{ ...halfStyle(row.lt), borderRight: '1px solid rgba(255,255,255,0.08)' }}>{row.l != null ? row.l : ''}</div>
                                 <div style={halfStyle(row.rt)}>{row.r != null ? row.r : ''}</div>
                             </div>
                         ))}
+                        {!showAllDiff && rows.length > DIFF_CAP ? (
+                            <div
+                                style={{ display: 'flex', cursor: 'pointer' }}
+                                onClick={() => setShowAllDiff(true)}
+                            >
+                                <div style={{ flex: 1, padding: '0 10px', color: '#4FA7D6' }}>
+                                    {'… ' + (rows.length - DIFF_CAP) + ' more lines — show all'}
+                                </div>
+                                <div style={{ flex: 1, padding: '0 10px' }} />
+                            </div>
+                        ) : null}
                     </div>
                 </div>
             )}

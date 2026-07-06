@@ -15,7 +15,7 @@ A dashboard disappears, a critical alert gets overwritten, a report is lost — 
 
 | Path | Purpose |
 |------|---------|
-| `default/savedsearches.conf` | Ten scheduled searches that feed `index=ko_history`. |
+| `default/savedsearches.conf` | 17 stanzas: 7 type backups, 1 combined delete-audit, 1 lookup builder, 1 usage collector, 7 one-time backfills — all feeding `index=ko_history`. All ship disabled. |
 | `default/data/ui/views/` | The dashboards: `wrapper.xml` (React page host), `ko_version.xml`, `ko_version_ds.xml`, `ko_rest_explorer.xml`, `ko_help.xml`. |
 | `appserver/static/visualizations/` | Four bundled custom vizs (see below). |
 | `appserver/static/pages/wrapper.js` + `appserver/templates/wrapper.html` | The React app page (`@splunk/react-page`). |
@@ -23,17 +23,40 @@ A dashboard disappears, a critical alert gets overwritten, a report is lost — 
 | `default/visualizations.conf` | Registers the four custom vizs. |
 | `metadata/default.meta` | ACL (read: \*, write: admin/sc\_admin; vizs exported system-wide). |
 
-### The ten saved searches
+### The scheduled searches (17 stanzas)
 
-A **backup** + **delete-audit** pair per KO type. Backups run on a staggered 15-minute cron and write one event per object changed in the last 15 min (`_time` = the object's `updated` timestamp). Audits run hourly and capture DELETE/MOVE from `_internal`. The saved-search name is the `source` field — that's how the UI discriminates streams.
+**ALL capture searches ship `disabled = 1`. Enable them after creating the index.**
 
-| KO type | Backup (cron) | Delete-audit (cron) |
+Seven **backup** searches run on a staggered 15-minute cron (`realtime_schedule = 0`, `schedule_window = auto`) and write one event per object changed in the last 15 min (`_time` = the object's `updated` timestamp). One **combined delete-audit** runs hourly and captures DELETE/MOVE from `_internal` for all KO types. A **lookup builder** and **usage collector** are optional; see *Usage statistics* below. Seven **one-time backfill** searches are included for initial onboarding — run each manually once, then leave disabled.
+
+**Backups (15-min window)**
+
+| Search name | Cron |
+|---|---|
+| `ko_views_xml_backup` | `3,18,33,48 * * * *` |
+| `ko_reports_and_alerts_backup` | `6,21,36,51 * * * *` |
+| `ko_macros_backup` | `9,24,39,54 * * * *` |
+| `ko_eventtypes_backup` | `11,26,41,56 * * * *` |
+| `ko_fieldextractions_backup` | `13,28,43,58 * * * *` |
+| `ko_lookups_backup` | `12,27,42,57 * * * *` |
+| `ko_tags_backup` | `0,15,30,45 * * * *` |
+
+**Delete audit (hourly)**
+
+| Search name | Cron |
+|---|---|
+| `ko_all_delete_audit` | `23 * * * *` |
+
+**Optional statistics (daily) — enable both together for the KO Statistics dashboard**
+
+| Search name | Cron | Purpose |
 |---|---|---|
-| Dashboards | `ko_views_xml_backup` (`3,18,33,48`) | `ko_views_delete_audit` (`4`) |
-| Reports & alerts | `ko_reports_and_alerts_backup` (`6,21,36,51`) | `ko_reports_and_alerts_delete_audit` (`7`) |
-| Macros | `ko_macros_backup` (`9,24,39,54`) | `ko_macros_delete_audit` (`10`) |
-| Event types | `ko_eventtypes_backup` (`11,26,41,56`) | `ko_eventtypes_delete_audit` (`14`) |
-| Field extractions | `ko_fieldextractions_backup` (`13,28,43,58`) | `ko_fieldextractions_delete_audit` (`17`) |
+| `ko_tracked_kos_lookup_builder` | `0 1 * * *` | Builds membership lookup used by the collector |
+| `ko_usage_collector` | `30 1 * * *` | Captures per-KO access/run counts |
+
+**One-time backfills (run manually once; never schedule)**
+
+`ko_views_xml_backfill`, `ko_reports_and_alerts_backfill`, `ko_macros_backfill`, `ko_eventtypes_backfill`, `ko_fieldextractions_backfill`, `ko_lookups_backfill`, `ko_tags_backfill`
 
 All write to `index=ko_history`.
 
@@ -50,22 +73,24 @@ All write to `index=ko_history`.
 
 ### Prerequisites
 
-The **`ko_history` index** must exist — this app does **not** ship `indexes.conf`. Create it first:
-- **Enterprise**: `[ko_history]` in `indexes.conf` on the indexer tier, or Settings → Indexes → New Index.
-- **Cloud**: Cloud Admin Console → Settings → Indexes → New Index, name `ko_history`.
+The **`ko_history` index** must exist before the capture searches start writing.
+
+- **Splunk Enterprise (single search head):** `default/indexes.conf` ships with the app and defines `[ko_history]` with a 20-year frozen retention period. A full restart picks it up automatically — no manual index creation is required.
+- **Splunk Enterprise (indexer cluster):** the app-shipped `indexes.conf` applies only on the search head. Create `ko_history` through your cluster's index management (cluster master / manager) before enabling the searches.
+- **Splunk Cloud:** indexes are managed platform-side. Create an Events index named `ko_history` via the Cloud Admin Console (ACS / Settings → Indexes → New Index) before enabling the searches. The bundled `indexes.conf` is inert on Cloud and can be ignored.
 
 ### Steps
 
 1. Install the tarball (Manage Apps → Install app from file) or drop `ko_history/` into `$SPLUNK_HOME/etc/apps/`.
 2. **`splunk restart`** — a full restart is required (the React page is served from a Mako template + static bundle that a reload won't refresh).
-3. Confirm the ten saved searches are scheduled under Settings → Searches, reports, and alerts.
+3. Enable the capture searches under **Settings → Searches, reports, and alerts** (app: KO History). All ship disabled — enable `ko_views_xml_backup` through `ko_tags_backup` and `ko_all_delete_audit` after the `ko_history` index exists. See *Scheduled searches* above for the full list.
 4. Wait one cron cycle (~15 min), then open **Apps → KO History**.
 
 ## Configuration
 
 ### Permissions
 
-`metadata/default.meta` grants read to all roles, write to `admin` / `sc_admin`. The custom vizs are exported `system`-wide so they appear in the viz picker of dashboards in any app; preview slots are always written into the `ko_history` app only. **Restore** and the live-preview write path require write on `data/ui/views` in `ko_history` — loosen `[views]` if other roles must drill in.
+`metadata/default.meta` grants read to all roles, write to `admin` / `sc_admin`. The custom vizs are exported `system`-wide so they appear in the viz picker of dashboards in any app; preview slots are always written into the `ko_history` app only. **Restore** and the live-preview write path require write on `data/ui/views` in `ko_history` for the acting user. **Do not broaden the `[views]` write stanza to additional roles.** Because all four vizs export as `system`, any role granted `[views]` write in this app gains a view create/overwrite primitive reachable from any dashboard fleet-wide — gated only by the client-side approval prompt, which is convenience, not security. If non-admin roles must use the preview or restore features, implement a constrained server-side endpoint (a custom REST handler that enforces per-user/per-slot limits) rather than expanding raw view-write permissions.
 
 ### Excluding noisy hosts from the delete audit
 
@@ -99,6 +124,6 @@ Each backup's `where updated > now-900s` clause is what makes it incremental —
 
 | Version | Notes |
 |---------|-------|
-| 0.1.59  | Visual compare **Blend** sub-mode (Photoshop-style difference / onion-skin overlay of the two renders); `ko_viewer` gains a **diff panel** (field-level changes + line diff of the primary code field) so every non-dashboard KO gets a version diff; baseline/target relabelled **PREVIOUS / LATEST** everywhere. |
-| 0.1.58  | Five KO types (views, reports/alerts, macros, event types, field extractions); React wrapper with visual compare + change overlays + restore; four bundled vizs (dashboard_preview, dashboard_preview_ds, json_viewer, ko_viewer). |
-| 0.0.1   | Initial scaffold. Four saved searches, dashboard with rendered-preview drilldown, generic ACL. |
+| 1.0.1   | Hardening release: all capture searches ship disabled, scheduler no-skip (`realtime_schedule=0`, `schedule_window=auto`), source-view render caps, viz render-key fixes. |
+| 1.0.0   | Initial public release. Seven KO types (views, reports/alerts, macros, event types, field extractions, lookups, tags); combined `ko_all_delete_audit`; one-time backfill searches; per-user preview slots; AppInspect-clean tarball. |
+| 0.1.x   | Pre-release iterations: single-app merge, React wrapper, visual compare + restore, four bundled vizs, DS dashboard, usage statistics. |

@@ -12,10 +12,6 @@ module.exports = {
     },
     resolve: {
         extensions: ['.js', '.jsx'],
-        alias: {
-            // Drop maplibre's heavy web-worker bundle (map viz unused here).
-            'maplibre-gl$': false,
-        },
     },
     module: {
         rules: [

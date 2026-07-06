@@ -2,21 +2,14 @@
   "name": "ko-history-wrapper",
   "version": "0.1.0",
   "private": true,
-  "description": "Standalone Splunk React app page that renders a Dashboard Studio dashboard via @splunk/dashboard-core and reads its tokens (proves the wrapper concept).",
+  "description": "Standalone Splunk React app page (ko_history wrapper) built with @splunk/react-page.",
   "scripts": {
     "build": "webpack --mode production"
   },
   "dependencies": {
-    "@splunk/dashboard-context": "29.6.0",
-    "@splunk/dashboard-core": "29.6.0",
-    "@splunk/dashboard-presets": "29.6.0",
-    "@splunk/dashboard-state": "29.6.0",
     "@splunk/react-page": "8.3.1",
     "@splunk/splunk-utils": "3.4.0",
     "@splunk/themes": "1.7.2",
-    "@splunk/visualization-context": "^28.6.0",
-    "@splunk/visualizations": "^28.6.0",
-    "@splunk/visualizations-shared": "^28.6.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "styled-components": "5.3.11"

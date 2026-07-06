@@ -15,7 +15,7 @@
 // eslint-disable-next-line import/no-commonjs
 const _sl = require('../shared/sourceLines.js');
 
-export const escHtml = _sl.escHtml;
+const escHtml = _sl.escHtml;
 
 function stripTags(html) {
     return String(html).replace(/<[^>]*>/g, '')

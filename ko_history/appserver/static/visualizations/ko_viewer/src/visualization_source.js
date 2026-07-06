@@ -1,5 +1,5 @@
 /*
- * ko_history.report_card — saved-search (report / alert) record viz.
+ * ko_history.ko_viewer — saved-search (report / alert) and generic KO record viz.
  *
  * Renders ONE saved search version as a Splunk-native record card: header +
  * status/kind seals, then titled sections (Definition + SPL + Copy, Schedule
@@ -16,6 +16,25 @@ define([
     'api/SplunkVisualizationBase',
     'api/SplunkVisualizationUtils'
 ], function (SplunkVisualizationBase, SplunkVisualizationUtils) {
+
+    // ── render-key hash (djb2 + FNV-1a, ES5) ─────────────────────────────────
+    // Duplicated from json_viewer/visualization_source.js — shared-module
+    // extraction is deferred to the roadmap consolidation pass.
+    function hashString(s) {
+        if (!s) return '0_0';
+        var h1 = 5381;
+        var h2 = 2166136261;
+        var FNV_PRIME = 16777619;
+        for (var i = 0; i < s.length; i++) {
+            var c = s.charCodeAt(i);
+            h1 = (((h1 << 5) + h1) + c) | 0;
+            h2 = h2 ^ c;
+            var lo = (h2 & 0xFFFF) * FNV_PRIME;
+            var hi = ((h2 >>> 16) * FNV_PRIME + (lo >>> 16)) & 0xFFFF;
+            h2 = ((hi << 16) | (lo & 0xFFFF)) >>> 0;
+        }
+        return (h1 >>> 0).toString(36) + '_' + h2.toString(36);
+    }
 
     // ── DOM helpers ──────────────────────────────────────────
     function el(tag, cls, text) {
@@ -128,6 +147,7 @@ define([
             this.root = el('div', 'korc');
             this.el.appendChild(this.root);
             this._lastGood = null;
+            this._lastRenderKey = null;
         },
 
         getInitialDataParams: function () {
@@ -175,10 +195,13 @@ define([
                 theme: this._resolveTheme(g('themeMode', 'auto'))
             };
 
-            this.root.className = 'korc korc--' + c.theme;
-            this.root.innerHTML = '';
-
             if (data.empty || !data.rows.length) {
+                // Reset the render key so identical content re-renders after a
+                // transient empty tick (else the short-circuit would keep
+                // showing this placeholder forever).
+                this._lastRenderKey = null;
+                this.root.className = 'korc korc--' + c.theme;
+                this.root.innerHTML = '';
                 this.root.appendChild(el('div', 'korc__empty',
                     'Awaiting data — provide a knowledge-object result row (title + its config fields).'));
                 return;
@@ -206,6 +229,20 @@ define([
                 latestRow = rows[0];
                 if (rows.length > 1) prevRow = rows[1];
             }
+
+            // ── render-key short-circuit: skip full innerHTML teardown + LCS diff
+            // on every updateView tick when nothing has changed (D4 fix). ──
+            // Key covers: full row payloads + theme + every option that affects rendering.
+            var renderKey = hashString(latestRow ? latestRow.join('\x00') : '') + ':' +
+                hashString(prevRow ? prevRow.join('\x00') : '') + ':' +
+                c.theme + ':' + (c.showCopy ? 1 : 0) + ':' + c.mode + ':' +
+                c.titleField + ':' + c.appField + ':' + c.typeField + ':' +
+                c.roleField + ':' + c.latestValue + ':' + c.previousValue;
+            if (renderKey === this._lastRenderKey && this.root && this.root.firstChild) { return; }
+            this._lastRenderKey = renderKey;
+
+            this.root.className = 'korc korc--' + c.theme;
+            this.root.innerHTML = '';
 
             var mk = function (rw) {
                 return function (name) {

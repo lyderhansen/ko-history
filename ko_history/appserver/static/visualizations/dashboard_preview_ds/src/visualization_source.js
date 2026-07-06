@@ -44,9 +44,8 @@
 }());
 
 define([
-    'api/SplunkVisualizationBase',
-    'api/SplunkVisualizationUtils'
-], function(SplunkVisualizationBase, SplunkVisualizationUtils) {
+    'api/SplunkVisualizationBase'
+], function(SplunkVisualizationBase) {
 
     // ── Pure helpers: parsing + diff (shared with the SXML-host viz) ──
 
@@ -73,6 +72,25 @@ define([
         }
         if (!jsonText) return null;
         try { return JSON.parse(jsonText); } catch (e) { return null; }
+    }
+
+    // ── render-key hash (djb2 + FNV-1a, ES5) ─────────────────────────────────
+    // Duplicated from json_viewer/visualization_source.js — shared-module
+    // extraction is deferred to the roadmap consolidation pass.
+    function hashString(s) {
+        if (!s) return '0_0';
+        var h1 = 5381;
+        var h2 = 2166136261;
+        var FNV_PRIME = 16777619;
+        for (var i = 0; i < s.length; i++) {
+            var c = s.charCodeAt(i);
+            h1 = (((h1 << 5) + h1) + c) | 0;
+            h2 = h2 ^ c;
+            var lo = (h2 & 0xFFFF) * FNV_PRIME;
+            var hi = ((h2 >>> 16) * FNV_PRIME + (lo >>> 16)) & 0xFFFF;
+            h2 = ((hi << 16) | (lo & 0xFFFF)) >>> 0;
+        }
+        return (h1 >>> 0).toString(36) + '_' + h2.toString(36);
     }
 
     function stableStringify(v) {
@@ -467,8 +485,10 @@ define([
                 return;
             }
 
-            var renderKey = (pick.baselineXml || '').length + ':' + pick.targetXml.length + ':' +
-                pick.targetXml.slice(0, 64) + ':' + (this._ui.labels ? 1 : 0) + (this._ui.changeList ? 1 : 0) +
+            // Full-content hashes so same-length mid-content edits produce
+            // a different key and trigger a re-render (D3 fix).
+            var renderKey = hashString(pick.baselineXml || '') + ':' + hashString(pick.targetXml) + ':' +
+                (this._ui.labels ? 1 : 0) + (this._ui.changeList ? 1 : 0) +
                 (this._ui.sourceDiff ? 1 : 0) + (this._ui.split ? 1 : 0) + (this._ui.live ? 1 : 0);
             this._pending = { c: c, pick: pick };
             if (renderKey === this._lastRenderKey && this.board.firstChild) {

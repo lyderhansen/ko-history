@@ -262,10 +262,10 @@ define([
             var wantDiff = (c.mode === 'diff') || (c.mode !== 'single' && !!baseRow);
 
             // ── render-key cache: skip full rebuild when data + config are identical ──
+            // Full-content hashes (not edge samples) so same-length mid-content edits
+            // produce a different key and trigger a re-render (D2 fix).
             var bRaw = (wantDiff && baseRow) ? baseRow[di] : '';
-            var renderKey = String(tRaw.length) + ':' + String(bRaw.length) + ':' +
-                hashString(tRaw.slice(0, 128) + tRaw.slice(-64)) + ':' +
-                hashString(bRaw.slice(0, 128)) + ':' +
+            var renderKey = hashString(tRaw) + ':' + hashString(bRaw) + ':' +
                 c.indent + c.initialDepth + (c.showLineNumbers ? 1 : 0) +
                 (c.showFooter ? 1 : 0) + (c.wrap ? 1 : 0) + (c.banding ? 1 : 0) +
                 (c.showCopy ? 1 : 0) + c.theme + c.diffView + (wantDiff ? 1 : 0);
@@ -277,7 +277,6 @@ define([
             // ── reset ALL mode fields before rebuild to release detached DOM ──
             this._allLines = null;
             this._foldGroups = null;
-            this._body = null;
             this._diffOps = null;
             this._diffBody = null;
 
@@ -335,13 +334,13 @@ define([
 
             // ── body ──
             var body = el('div', 'kojv__body');
-            this._body = body;
             this._foldGroups = {};   // foldId -> { parentLine, childLines:[], depth }
             this._allLines = [];     // every line el, in document order (for zebra restripe)
             this._maxDepth = 0;      // deepest foldable nesting level
             this._shownDepth = -1;   // current "collapse to level" state; -1 = fully expanded
 
-            for (var i = 0; i < lines.length; i++) {
+            var RENDER_CAP = 4000;
+            for (var i = 0; i < lines.length && i < RENDER_CAP; i++) {
                 var L = lines[i];
                 var lineEl = el('div', 'kojv__line');
                 if (c.showLineNumbers) lineEl.appendChild(el('span', 'kojv__ln', String(i + 1)));
@@ -370,6 +369,12 @@ define([
                 lineEl.appendChild(code);
                 body.appendChild(lineEl);
                 this._allLines.push(lineEl);
+            }
+            if (lines.length > RENDER_CAP) {
+                var capNotice = el('div', 'kojv__line');
+                capNotice.appendChild(el('span', 'kojv__code',
+                    '(truncated — showing first ' + RENDER_CAP + ' of ' + lines.length + ' lines)'));
+                body.appendChild(capNotice);
             }
             this.root.appendChild(body);
 
@@ -585,8 +590,9 @@ define([
             if (!body) return;
             body.innerHTML = '';
             var ops = this._diffOps, i;
+            var cap = 4000;
             if (this._diffView === 'unified') {
-                for (i = 0; i < ops.length; i++) {
+                for (i = 0; i < ops.length && i < cap; i++) {
                     var op = ops[i];
                     var ln = el('div', 'kojv__line' + (op.t === 'add' ? ' kojv__line--add' : op.t === 'del' ? ' kojv__line--del' : ''));
                     ln.appendChild(el('span', 'kojv__dsign', op.t === 'add' ? '+' : op.t === 'del' ? '−' : ''));
@@ -595,13 +601,19 @@ define([
                     ln.appendChild(code);
                     body.appendChild(ln);
                 }
+                if (ops.length > cap) {
+                    var uNotice = el('div', 'kojv__line');
+                    uNotice.appendChild(el('span', 'kojv__code',
+                        '(truncated — showing first ' + cap + ' of ' + ops.length + ' lines)'));
+                    body.appendChild(uNotice);
+                }
             } else {
                 var hdr = el('div', 'kojv__diffhdr');
                 hdr.appendChild(el('div', 'kojv__diffhdr-l', 'PREVIOUS'));
                 hdr.appendChild(el('div', 'kojv__diffhdr-r', 'LATEST'));
                 body.appendChild(hdr);
                 var rows = pairDiff(ops);
-                for (i = 0; i < rows.length; i++) {
+                for (i = 0; i < rows.length && i < cap; i++) {
                     var r = rows[i];
                     var row = el('div', 'kojv__line');
                     var left = el('span', 'kojv__half kojv__half--l kojv__half--' + r.lt);
@@ -612,6 +624,12 @@ define([
                     row.appendChild(right);
                     body.appendChild(row);
                 }
+                if (rows.length > cap) {
+                    var sNotice = el('div', 'kojv__line');
+                    sNotice.appendChild(el('span', 'kojv__code',
+                        '(truncated — showing first ' + cap + ' of ' + rows.length + ' lines)'));
+                    body.appendChild(sNotice);
+                }
             }
         },
 
@@ -620,7 +638,6 @@ define([
         remove: function() {
             this._allLines = null;
             this._foldGroups = null;
-            this._body = null;
             this._diffOps = null;
             this._diffBody = null;
             this._lastGood = null;
