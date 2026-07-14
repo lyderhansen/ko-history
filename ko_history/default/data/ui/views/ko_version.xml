@@ -62,6 +62,10 @@
           <set token="koTypeFilter">savedsearch</set>
         </condition>
         <condition>
+          <unset token="link_title"></unset>
+          <unset token="showDrilldown"></unset>
+          <set token="data_type">knowledge objects</set>
+          <set token="table_view">_time title owner appName latestSharing latestMethod deletedBy history</set>
           <set token="koTypeFilter">*</set>
         </condition>
       </change>

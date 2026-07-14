@@ -156,6 +156,7 @@ define([
             this.root = el('div', 'kojv');
             this.el.appendChild(this.root);
             this._lastRenderKey = null;
+            this._expandAll = false;   // true after user clicks truncation control
         },
 
         getInitialDataParams: function () {
@@ -272,6 +273,7 @@ define([
                 return;
             }
             this._lastRenderKey = renderKey;
+            this._expandAll = false;   // new data always resets per-render expansion
 
             // ── reset ALL mode fields before rebuild to release detached DOM ──
             this._resetModelFields();
@@ -293,6 +295,12 @@ define([
         },
 
         _render: function (raw, title, app, c) {
+            // cache for click-to-expand re-render (direct call bypasses updateView)
+            this._listingRaw   = raw;
+            this._listingTitle = title;
+            this._listingApp   = app;
+            this._listingC     = c;
+
             this.root.className = 'kojv kojv--' + c.theme +
                 (c.wrap ? ' kojv--wrap' : '') + (c.banding ? ' kojv--banded' : '');
             this.root.innerHTML = '';
@@ -345,7 +353,9 @@ define([
             this._shownDepth = -1;   // current "collapse to level" state; -1 = fully expanded
 
             var RENDER_CAP = 4000;
-            for (var i = 0; i < lines.length && i < RENDER_CAP; i++) {
+            var cap = this._expandAll ? Infinity : RENDER_CAP;
+            var self = this;
+            for (var i = 0; i < lines.length && i < cap; i++) {
                 var L = lines[i];
                 var lineEl = el('div', 'kojv__line');
                 if (c.showLineNumbers) lineEl.appendChild(el('span', 'kojv__ln', String(i + 1)));
@@ -375,10 +385,22 @@ define([
                 body.appendChild(lineEl);
                 this._allLines.push(lineEl);
             }
-            if (lines.length > RENDER_CAP) {
-                var capNotice = el('div', 'kojv__line');
+            if (lines.length > cap) {
+                var capNotice = el('div', 'kojv__truncrow kojv__line');
+                capNotice.setAttribute('role', 'button');
+                capNotice.setAttribute('tabindex', '0');
                 capNotice.appendChild(el('span', 'kojv__code',
-                    '(truncated — showing first ' + RENDER_CAP + ' of ' + lines.length + ' lines)'));
+                    'truncated — showing first 4,000 of ' + lines.length.toLocaleString() + ' lines · click to show all'));
+                capNotice.addEventListener('click', function () {
+                    self._expandAll = true;
+                    self._render(self._listingRaw, self._listingTitle, self._listingApp, self._listingC);
+                });
+                capNotice.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter' || e.keyCode === 13) {
+                        self._expandAll = true;
+                        self._render(self._listingRaw, self._listingTitle, self._listingApp, self._listingC);
+                    }
+                });
                 body.appendChild(capNotice);
             }
             this.root.appendChild(body);
@@ -595,7 +617,23 @@ define([
             if (!body) return;
             body.innerHTML = '';
             var ops = this._diffOps, i;
-            var cap = 4000;
+            var cap = this._expandAll ? Infinity : 4000;
+            var self = this;
+
+            // shared factory for the click-to-expand truncation control
+            function makeTruncRow(total) {
+                var r = el('div', 'kojv__truncrow kojv__line');
+                r.setAttribute('role', 'button');
+                r.setAttribute('tabindex', '0');
+                r.appendChild(el('span', 'kojv__code',
+                    'truncated — showing first 4,000 of ' + total.toLocaleString() + ' lines · click to show all'));
+                r.addEventListener('click', function () { self._expandAll = true; self._drawDiffBody(); });
+                r.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter' || e.keyCode === 13) { self._expandAll = true; self._drawDiffBody(); }
+                });
+                return r;
+            }
+
             if (this._diffView === 'unified') {
                 for (i = 0; i < ops.length && i < cap; i++) {
                     var op = ops[i];
@@ -607,15 +645,12 @@ define([
                     body.appendChild(ln);
                 }
                 if (ops.length > cap) {
-                    var uNotice = el('div', 'kojv__line');
-                    uNotice.appendChild(el('span', 'kojv__code',
-                        '(truncated — showing first ' + cap + ' of ' + ops.length + ' lines)'));
-                    body.appendChild(uNotice);
+                    body.appendChild(makeTruncRow(ops.length));
                 }
             } else {
                 var hdr = el('div', 'kojv__diffhdr');
-                hdr.appendChild(el('div', 'kojv__diffhdr-l', 'PREVIOUS'));
-                hdr.appendChild(el('div', 'kojv__diffhdr-r', 'LATEST'));
+                hdr.appendChild(el('div', 'kojv__diffhdr-l', 'OLDER'));
+                hdr.appendChild(el('div', 'kojv__diffhdr-r', 'NEWER'));
                 body.appendChild(hdr);
                 var rows = pairDiff(ops);
                 for (i = 0; i < rows.length && i < cap; i++) {
@@ -630,10 +665,7 @@ define([
                     body.appendChild(row);
                 }
                 if (rows.length > cap) {
-                    var sNotice = el('div', 'kojv__line');
-                    sNotice.appendChild(el('span', 'kojv__code',
-                        '(truncated — showing first ' + cap + ' of ' + rows.length + ' lines)'));
-                    body.appendChild(sNotice);
+                    body.appendChild(makeTruncRow(rows.length));
                 }
             }
         },

@@ -470,11 +470,11 @@ function SavedSearchCompare({ title, baseVer, targetVer, onClose, onRestore }) {
                 {onRestore ? (
                     <React.Fragment>
                         <span style={{ color: '#6b7177', fontSize: 11, marginRight: 2 }}>Restore:</span>
-                        <button type="button" title="Restore the previous version" disabled={!(baseVer && baseVer.isConfig)} style={{ background: 'transparent', color: baseVer && baseVer.isConfig ? '#8ab4f8' : '#4a525c', border: `1px solid ${baseVer && baseVer.isConfig ? '#8ab4f8' : '#3c4043'}`, borderRadius: 4, padding: '4px 10px', cursor: baseVer && baseVer.isConfig ? 'pointer' : 'default', fontFamily: 'inherit', fontSize: 12 }} onClick={() => baseVer && baseVer.isConfig && onRestore('baseline')}>
-                            ⟲ Previous
+                        <button type="button" title="Restore the older version" disabled={!(baseVer && baseVer.isConfig)} style={{ background: 'transparent', color: baseVer && baseVer.isConfig ? '#8ab4f8' : '#4a525c', border: `1px solid ${baseVer && baseVer.isConfig ? '#8ab4f8' : '#3c4043'}`, borderRadius: 4, padding: '4px 10px', cursor: baseVer && baseVer.isConfig ? 'pointer' : 'default', fontFamily: 'inherit', fontSize: 12 }} onClick={() => baseVer && baseVer.isConfig && onRestore('baseline')}>
+                            ⟲ Older
                         </button>
-                        <button type="button" title="Restore the latest version" disabled={!(targetVer && targetVer.isConfig)} style={{ background: 'transparent', color: targetVer && targetVer.isConfig ? '#81c995' : '#4a525c', border: `1px solid ${targetVer && targetVer.isConfig ? '#81c995' : '#3c4043'}`, borderRadius: 4, padding: '4px 10px', cursor: targetVer && targetVer.isConfig ? 'pointer' : 'default', fontFamily: 'inherit', fontSize: 12 }} onClick={() => targetVer && targetVer.isConfig && onRestore('target')}>
-                            ⟲ Latest
+                        <button type="button" title="Restore the newer version" disabled={!(targetVer && targetVer.isConfig)} style={{ background: 'transparent', color: targetVer && targetVer.isConfig ? '#81c995' : '#4a525c', border: `1px solid ${targetVer && targetVer.isConfig ? '#81c995' : '#3c4043'}`, borderRadius: 4, padding: '4px 10px', cursor: targetVer && targetVer.isConfig ? 'pointer' : 'default', fontFamily: 'inherit', fontSize: 12 }} onClick={() => targetVer && targetVer.isConfig && onRestore('target')}>
+                            ⟲ Newer
                         </button>
                     </React.Fragment>
                 ) : null}
@@ -490,8 +490,8 @@ function SavedSearchCompare({ title, baseVer, targetVer, onClose, onRestore }) {
                             <thead>
                                 <tr style={{ fontSize: 11, color: '#9aa0a6', textTransform: 'uppercase', letterSpacing: 0.4 }}>
                                     <th style={{ textAlign: 'left', padding: '4px 8px', width: '24%' }}>Field</th>
-                                    <th style={{ textAlign: 'left', padding: '4px 8px', width: '38%', color: '#8ab4f8' }}>Previous</th>
-                                    <th style={{ textAlign: 'left', padding: '4px 8px', width: '38%', color: '#81c995' }}>Latest</th>
+                                    <th style={{ textAlign: 'left', padding: '4px 8px', width: '38%', color: '#8ab4f8' }}>Older</th>
+                                    <th style={{ textAlign: 'left', padding: '4px 8px', width: '38%', color: '#81c995' }}>Newer</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -529,11 +529,11 @@ function SavedSearchCompare({ title, baseVer, targetVer, onClose, onRestore }) {
                 {tab === 'cards' ? (
                     <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
                         <div style={{ flex: 1, minWidth: 0, border: '1px solid rgba(138,180,248,0.4)', borderRadius: 6, padding: '4px 12px 12px' }}>
-                            <div style={{ fontSize: 11, color: '#8ab4f8', textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 8 }}>Previous · {fmtTime(baseVer._time)}</div>
+                            <div style={{ fontSize: 11, color: '#8ab4f8', textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 8 }}>Older · {fmtTime(baseVer._time)}</div>
                             <KOSummary ver={baseVer} hideNote />
                         </div>
                         <div style={{ flex: 1, minWidth: 0, border: '1px solid rgba(129,201,149,0.4)', borderRadius: 6, padding: '4px 12px 12px' }}>
-                            <div style={{ fontSize: 11, color: '#81c995', textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 8 }}>Latest · {fmtTime(targetVer._time)}</div>
+                            <div style={{ fontSize: 11, color: '#81c995', textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 8 }}>Newer · {fmtTime(targetVer._time)}</div>
                             <KOSummary ver={targetVer} hideNote />
                         </div>
                     </div>
@@ -932,6 +932,9 @@ export default function WrapperApp() {
     const targetVer = versions[targetIdx];
     const restoreVer = versions[restoreIdx];
     const ready = !!(baseVer && targetVer && baseIdx !== targetIdx);
+    // True when the selected KO has exactly one captured snapshot: the two-sided
+    // compare makes no sense — render a View mode instead.
+    const singleVersion = versions.length === 1;
     // Saved searches can only be restored from a real config snapshot (an
     // audit-only DELETE/MOVE marker carries no SPL to write back).
     const restoreReady = !!(restoreVer && restoreApp && restoreName && (!restoreVer.ss || restoreVer.isConfig));
@@ -1189,32 +1192,44 @@ export default function WrapperApp() {
 
                                 {versions.length ? (
                                     <div>
-                                        <label style={{ ...lbl, color: '#81c995' }}>Newer version (override)</label>
-                                        <select style={ctrl} value={targetIdx} onChange={(e) => setTargetIdx(Number(e.target.value))}>
-                                            {versions.map((v, i) => (
-                                                <option key={i} value={i}>{optLabel(v, i)}</option>
-                                            ))}
-                                        </select>
+                                        {singleVersion ? (
+                                            <div style={{ marginBottom: 10, fontSize: 12, color: '#9aa0a6', fontStyle: 'italic' }}>
+                                                Only one captured version — showing it directly.
+                                            </div>
+                                        ) : null}
 
-                                        <label style={{ ...lbl, color: '#8ab4f8' }}>Older version (override)</label>
-                                        <select style={ctrl} value={baseIdx} onChange={(e) => setBaseIdx(Number(e.target.value))}>
-                                            {versions.map((v, i) => (
-                                                <option key={i} value={i}>{optLabel(v, i)}</option>
-                                            ))}
-                                        </select>
+                                        {!singleVersion ? (
+                                            <React.Fragment>
+                                                <label style={{ ...lbl, color: '#81c995' }}>Newer version (override)</label>
+                                                <select style={ctrl} value={targetIdx} onChange={(e) => setTargetIdx(Number(e.target.value))}>
+                                                    {versions.map((v, i) => (
+                                                        <option key={i} value={i}>{optLabel(v, i)}</option>
+                                                    ))}
+                                                </select>
+
+                                                <label style={{ ...lbl, color: '#8ab4f8' }}>Older version (override)</label>
+                                                <select style={ctrl} value={baseIdx} onChange={(e) => setBaseIdx(Number(e.target.value))}>
+                                                    {versions.map((v, i) => (
+                                                        <option key={i} value={i}>{optLabel(v, i)}</option>
+                                                    ))}
+                                                </select>
+                                            </React.Fragment>
+                                        ) : null}
 
                                         {isSaved ? (
                                             /* Saved searches: compare two versions (cards + field/SPL diff,
                                                #8) and a read-only summary of the target. Restore is #9. */
                                             <React.Fragment>
-                                                <div style={{ marginTop: 12 }}>
-                                                    <button type="button" style={btn(ready ? '#1a73e8' : '#3c4043')} disabled={!ready} onClick={() => ready && setSsCompare(true)}>
-                                                        Compare ▸ older vs newer
-                                                    </button>
-                                                    {baseIdx === targetIdx ? (
-                                                        <div style={{ color: '#6b7177', marginTop: 6, fontSize: 11 }}>Pick two different versions.</div>
-                                                    ) : null}
-                                                </div>
+                                                {!singleVersion ? (
+                                                    <div style={{ marginTop: 12 }}>
+                                                        <button type="button" style={btn(ready ? '#1a73e8' : '#3c4043')} disabled={!ready} onClick={() => ready && setSsCompare(true)}>
+                                                            Compare ▸ older vs newer
+                                                        </button>
+                                                        {baseIdx === targetIdx ? (
+                                                            <div style={{ color: '#6b7177', marginTop: 6, fontSize: 11 }}>Pick two different versions.</div>
+                                                        ) : null}
+                                                    </div>
+                                                ) : null}
                                                 <SavedSearchSummary ver={targetVer} />
 
                                                 {/* ── Restore a saved-search version (config only; owner nobody) ── */}
@@ -1253,14 +1268,16 @@ export default function WrapperApp() {
                                                versions (cards + field/content diff) and a read-only summary.
                                                Restore for these types is a follow-up. */
                                             <React.Fragment>
-                                                <div style={{ marginTop: 12 }}>
-                                                    <button type="button" style={btn(ready ? '#1a73e8' : '#3c4043')} disabled={!ready} onClick={() => ready && setSsCompare(true)}>
-                                                        Compare ▸ older vs newer
-                                                    </button>
-                                                    {baseIdx === targetIdx ? (
-                                                        <div style={{ color: '#6b7177', marginTop: 6, fontSize: 11 }}>Pick two different versions.</div>
-                                                    ) : null}
-                                                </div>
+                                                {!singleVersion ? (
+                                                    <div style={{ marginTop: 12 }}>
+                                                        <button type="button" style={btn(ready ? '#1a73e8' : '#3c4043')} disabled={!ready} onClick={() => ready && setSsCompare(true)}>
+                                                            Compare ▸ older vs newer
+                                                        </button>
+                                                        {baseIdx === targetIdx ? (
+                                                            <div style={{ color: '#6b7177', marginTop: 6, fontSize: 11 }}>Pick two different versions.</div>
+                                                        ) : null}
+                                                    </div>
+                                                ) : null}
                                                 <GenericSummary ver={targetVer} />
                                                 <div style={{ marginTop: 14, fontSize: 11, color: '#6b7177', borderTop: '1px solid rgba(255,255,255,0.12)', paddingTop: 10 }}>
                                                     Restore for {prettyKoType(targetVer && targetVer.fields).toLowerCase()}s is coming. Version history, inspect, and compare are live.
@@ -1268,21 +1285,35 @@ export default function WrapperApp() {
                                             </React.Fragment>
                                         ) : (
                                             <React.Fragment>
-                                                {/* Overwrite warning */}
-                                                <div style={{ background: 'rgba(224,108,58,0.14)', border: '1px solid rgba(224,108,58,0.5)', color: '#e8a87c', borderRadius: 4, padding: '8px 10px', fontSize: 11, lineHeight: 1.5, marginTop: 14 }}>
-                                                    ⚠ Comparing <b>overwrites</b> the scratch preview dashboards
-                                                    {' '}<code>{SLOT_BASELINE}</code> and <code>{SLOT_TARGET}</code> in
-                                                    {' '}<code>{PREVIEW_APP}</code>. Your real KOs are never touched.
-                                                </div>
+                                                {/* Overwrite warning + compare button — hidden for single-version KOs */}
+                                                {!singleVersion ? (
+                                                    <React.Fragment>
+                                                        <div style={{ background: 'rgba(224,108,58,0.14)', border: '1px solid rgba(224,108,58,0.5)', color: '#e8a87c', borderRadius: 4, padding: '8px 10px', fontSize: 11, lineHeight: 1.5, marginTop: 14 }}>
+                                                            ⚠ Comparing <b>overwrites</b> the scratch preview dashboards
+                                                            {' '}<code>{SLOT_BASELINE}</code> and <code>{SLOT_TARGET}</code> in
+                                                            {' '}<code>{PREVIEW_APP}</code>. Your real KOs are never touched.
+                                                        </div>
 
-                                                <div style={{ marginTop: 12 }}>
-                                                    <button type="button" style={btn(ready ? '#1a73e8' : '#3c4043')} disabled={!ready} onClick={() => ready && setApproval({ busy: false, error: '' })}>
-                                                        Compare ▸ older vs newer
-                                                    </button>
-                                                    {baseIdx === targetIdx ? (
-                                                        <div style={{ color: '#6b7177', marginTop: 6, fontSize: 11 }}>Pick two different versions.</div>
-                                                    ) : null}
-                                                </div>
+                                                        <div style={{ marginTop: 12 }}>
+                                                            <button type="button" style={btn(ready ? '#1a73e8' : '#3c4043')} disabled={!ready} onClick={() => ready && setApproval({ busy: false, error: '' })}>
+                                                                Compare ▸ older vs newer
+                                                            </button>
+                                                            {baseIdx === targetIdx ? (
+                                                                <div style={{ color: '#6b7177', marginTop: 6, fontSize: 11 }}>Pick two different versions.</div>
+                                                            ) : null}
+                                                        </div>
+                                                    </React.Fragment>
+                                                ) : (
+                                                    /* Single-version view mode: preview + source only */
+                                                    <div style={{ marginTop: 14 }}>
+                                                        <div style={{ background: 'rgba(224,108,58,0.14)', border: '1px solid rgba(224,108,58,0.5)', color: '#e8a87c', borderRadius: 4, padding: '8px 10px', fontSize: 11, lineHeight: 1.5, marginBottom: 10 }}>
+                                                            ⚠ Viewing writes the snapshot into the scratch preview slot <code>{SLOT_TARGET}</code> in <code>{PREVIEW_APP}</code>. Your real dashboards are never touched.
+                                                        </div>
+                                                        <button type="button" style={btn('#1a73e8')} onClick={() => setApproval({ busy: false, error: '' })}>
+                                                            View ›
+                                                        </button>
+                                                    </div>
+                                                )}
 
                                                 {/* ── Restore: recover a captured version into a real dashboard ── */}
                                                 <div style={{ marginTop: 18, borderTop: '1px solid rgba(255,255,255,0.12)', paddingTop: 12 }}>
@@ -1330,7 +1361,7 @@ export default function WrapperApp() {
                                                 isFieldsKO
                                                     ? ['Type', latest ? (isSaved ? prettySsType(latest.fields) : prettyKoType(latest.fields)) : '—']
                                                     : ['Format', latest ? (isDsXml(latest.xml) ? 'Dashboard Studio' : 'Simple XML') : '—'],
-                                                ['Previous ⇄ latest gap', baseVer && targetVer ? durStr(Math.abs(targetVer._time - baseVer._time)) : '—'],
+                                                ['Older ⇄ newer gap', baseVer && targetVer ? durStr(Math.abs(targetVer._time - baseVer._time)) : '—'],
                                             ].map(([k, v]) => (
                                                 <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '5px 0', fontSize: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                                                     <span style={{ color: '#9aa0a6' }}>{k}</span>
@@ -1349,17 +1380,30 @@ export default function WrapperApp() {
             </div>
 
             {approval ? (
-                <Modal title="⚠ Overwrite preview dashboards & render?" onClose={approval.busy ? null : () => setApproval(null)}>
+                <Modal title={singleVersion ? '⚠ Write preview slot & render?' : '⚠ Overwrite preview dashboards & render?'} onClose={approval.busy ? null : () => setApproval(null)}>
                     <div style={{ padding: 20, color: '#e6e6e6', fontSize: 13, lineHeight: 1.6, overflow: 'auto' }}>
-                        <div style={{ background: 'rgba(224,108,58,0.14)', border: '1px solid rgba(224,108,58,0.5)', color: '#e8a87c', borderRadius: 4, padding: '10px 12px', marginBottom: 14 }}>
-                            ⚠ This <b>overwrites</b> two scratch preview views in the <code>{PREVIEW_APP}</code> app
-                            (<code>{SLOT_BASELINE}</code>, <code>{SLOT_TARGET}</code>) with the selected versions, then
-                            renders them. These slots exist only for previewing — <b>your real dashboards are never touched.</b>
-                        </div>
-                        <ul>
-                            <li><code>{SLOT_BASELINE}</code> ← previous · {baseVer ? fmtTime(baseVer._time) : ''}</li>
-                            <li><code>{SLOT_TARGET}</code> ← latest · {targetVer ? fmtTime(targetVer._time) : ''}</li>
-                        </ul>
+                        {singleVersion ? (
+                            <React.Fragment>
+                                <div style={{ background: 'rgba(224,108,58,0.14)', border: '1px solid rgba(224,108,58,0.5)', color: '#e8a87c', borderRadius: 4, padding: '10px 12px', marginBottom: 14 }}>
+                                    ⚠ This writes the snapshot into the scratch preview slot <code>{SLOT_TARGET}</code> in the <code>{PREVIEW_APP}</code> app, then renders it. This slot exists only for previewing — <b>your real dashboards are never touched.</b>
+                                </div>
+                                <ul>
+                                    <li><code>{SLOT_TARGET}</code> ← {targetVer ? fmtTime(targetVer._time) : ''}</li>
+                                </ul>
+                            </React.Fragment>
+                        ) : (
+                            <React.Fragment>
+                                <div style={{ background: 'rgba(224,108,58,0.14)', border: '1px solid rgba(224,108,58,0.5)', color: '#e8a87c', borderRadius: 4, padding: '10px 12px', marginBottom: 14 }}>
+                                    ⚠ This <b>overwrites</b> two scratch preview views in the <code>{PREVIEW_APP}</code> app
+                                    (<code>{SLOT_BASELINE}</code>, <code>{SLOT_TARGET}</code>) with the selected versions, then
+                                    renders them. These slots exist only for previewing — <b>your real dashboards are never touched.</b>
+                                </div>
+                                <ul>
+                                    <li><code>{SLOT_BASELINE}</code> ← older · {baseVer ? fmtTime(baseVer._time) : ''}</li>
+                                    <li><code>{SLOT_TARGET}</code> ← newer · {targetVer ? fmtTime(targetVer._time) : ''}</li>
+                                </ul>
+                            </React.Fragment>
+                        )}
                         {approval.error ? <div style={{ color: '#f85149', marginTop: 8 }}>Error: {approval.error}</div> : null}
                         <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
                             <button type="button" style={{ ...btn('#1a73e8'), display: 'inline-flex', alignItems: 'center', gap: 6 }} disabled={approval.busy} onClick={doRender}>
@@ -1485,9 +1529,9 @@ export default function WrapperApp() {
             ) : null}
 
             {compare ? (
-                <Modal title={`Compare — ${sel ? sel.title : ''}`} onClose={() => setCompare(null)}>
+                <Modal title={singleVersion ? `View — ${sel ? sel.title : ''}` : `Compare — ${sel ? sel.title : ''}`} onClose={() => setCompare(null)}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: '#0e1116', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                        {[['visual', 'Visual'], ['source', 'Source'], ['diff', 'Source diff']].map(([t, label]) => (
+                        {[['visual', 'Visual'], ['source', 'Source'], ['diff', 'Source diff']].filter(([t]) => !singleVersion || t !== 'diff').map(([t, label]) => (
                             <button
                                 key={t}
                                 type="button"
@@ -1501,121 +1545,154 @@ export default function WrapperApp() {
                             <React.Fragment>
                                 <div style={{ flex: 1 }} />
                                 <span style={{ color: '#6b7177', fontSize: 11, marginRight: 4 }}>Restore:</span>
-                                <button type="button" title="Restore the previous version" style={{ background: 'transparent', color: '#8ab4f8', border: '1px solid #8ab4f8', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }} onClick={() => openRestore(baseIdx)}>
-                                    ⟲ Previous
-                                </button>
-                                <button type="button" title="Restore the latest version" style={{ background: 'transparent', color: '#81c995', border: '1px solid #81c995', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }} onClick={() => openRestore(targetIdx)}>
-                                    ⟲ Latest
+                                {!singleVersion ? (
+                                    <button type="button" title="Restore the older version" style={{ background: 'transparent', color: '#8ab4f8', border: '1px solid #8ab4f8', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }} onClick={() => openRestore(baseIdx)}>
+                                        ⟲ Older
+                                    </button>
+                                ) : null}
+                                <button type="button" title={singleVersion ? 'Restore this version' : 'Restore the newer version'} style={{ background: 'transparent', color: '#81c995', border: '1px solid #81c995', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }} onClick={() => openRestore(targetIdx)}>
+                                    {singleVersion ? '⟲ Restore this version' : '⟲ Newer'}
                                 </button>
                             </React.Fragment>
                         ) : null}
                     </div>
                     {cmpTab === 'visual' ? (
                         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-                            {/* persistent overlay toggle + per-kind show/hide + summary */}
-                            {(() => {
-                                const a = cmpChanges.target.changes.filter((c) => c.kind === 'added').length;
-                                const md = cmpChanges.target.changes.filter((c) => c.kind === 'moved' || c.kind === 'retitled').length
-                                    + cmpChanges.baseline.changes.filter((c) => c.kind === 'moved').length;
-                                const rm = cmpChanges.baseline.changes.filter((c) => c.kind === 'removed').length;
-                                const kindBox = (key, color, label, n) => (
-                                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: overlays ? 'pointer' : 'default', fontSize: 11, color: overlays ? color : '#5a636e', opacity: overlays ? 1 : 0.5 }}>
-                                        <input type="checkbox" disabled={!overlays} checked={kinds[key]} onChange={(e) => setKinds((k) => ({ ...k, [key]: e.target.checked }))} />
-                                        <span style={{ width: 10, height: 10, borderRadius: 2, border: `1.5px ${key === 'removed' ? 'dashed' : 'solid'} ${color}`, background: color + '22', display: 'inline-block' }} />
-                                        {label} ({n})
-                                    </label>
-                                );
-                                const modeSwitch = (
-                                    <div style={{ display: 'inline-flex', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 4, overflow: 'hidden' }}>
-                                        {[['boxes', 'Boxes'], ['blend', 'Blend']].map(([m, l]) => (
-                                            <button key={m} type="button" onClick={() => { setVisualMode(m); if (m === 'blend') setHasBlended(true); }} title={m === 'blend' ? 'Stack both renders and blend (difference / onion-skin)' : 'Draw change boxes on each render, side by side'} style={{ background: visualMode === m ? '#1a73e8' : 'transparent', color: '#e6e6e6', border: 0, padding: '4px 12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>{l}</button>
-                                        ))}
-                                    </div>
-                                );
-                                return (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '6px 12px', background: '#0e1116', borderBottom: '1px solid rgba(255,255,255,0.08)', flexWrap: 'wrap' }}>
-                                        {modeSwitch}
-                                        {visualMode === 'boxes' ? (
-                                            <React.Fragment>
-                                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: 12, color: '#e6e6e6' }}>
-                                                    <input type="checkbox" checked={overlays} onChange={(e) => setOverlays(e.target.checked)} />
-                                                    Highlight changes
-                                                </label>
-                                                {kindBox('added', '#46aa5a', 'Added', a)}
-                                                {kindBox('modified', '#d6b35a', 'Modified', md)}
-                                                {kindBox('removed', '#e0505a', 'Removed', rm)}
-                                                {!a && !md && !rm ? <span style={{ color: '#6b7177', fontSize: 11 }}>no structural change</span> : null}
-                                                <span style={{ flex: 1 }} />
-                                                <span style={{ fontSize: 11, color: '#6b7177' }}>boxes drawn over the live render (Run a side to see them)</span>
-                                            </React.Fragment>
-                                        ) : (
-                                            <React.Fragment>
-                                                <span style={{ flex: 1 }} />
-                                                <span style={{ fontSize: 11, color: '#6b7177' }}>both renders stacked &amp; blended — identical pixels cancel, changes glow</span>
-                                            </React.Fragment>
-                                        )}
-                                    </div>
-                                );
-                            })()}
-                            {/* Boxes pair is always visible when run flags are set. BlendView is
-                                only mounted after blend mode is first activated (hasBlended), then
-                                persisted with display:none so iframes survive mode toggles without
-                                re-running their searches. */}
-                            <div style={{ display: visualMode === 'boxes' ? 'contents' : 'none' }}>
+                            {singleVersion ? (
+                                /* Single-version view: one column, simple run button, no blend or diff overlay */
                                 <React.Fragment>
-                                    {!runBase || !runTarget ? (
+                                    {!runTarget ? (
                                         <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12, background: '#0e1116', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                                            <button type="button" style={btn('#1a7a3f')} onClick={() => { setRunBase(true); setRunTarget(true); }}>▶ Run both</button>
+                                            <button type="button" style={btn('#1a7a3f')} onClick={() => setRunTarget(true)}>▶ Run</button>
                                             <span style={{ color: cmpCombined === 'heavy' ? '#f85149' : '#e8a87c', fontSize: 12 }}>
-                                                ⚠ Rendering runs each dashboard's searches live{cmpCombined === 'heavy' ? ' — these look HEAVY' : ''}. Run both, or one side at a time.
+                                                ⚠ Rendering runs the dashboard&apos;s searches live{cmpCombined === 'heavy' ? ' — this looks HEAVY' : ''}.
                                             </span>
-                                            <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
-                                                <HeavyBadge a={cmpBaseHeavy} label="Previous" />
-                                                <HeavyBadge a={cmpTargetHeavy} label="Latest" />
-                                            </div>
-                                        </div>
-                                    ) : null}
-                                    <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-                                        <CompareColumn accent="#8ab4f8" tag="PREVIOUS" label={compare.baseLabel} url={compare.baseUrl} run={runBase} onRun={() => setRunBase(true)} onRestore={() => openRestore(baseIdx)} heavy={cmpBaseHeavy} changes={cmpChanges.baseline.changes} canvasW={cmpChanges.baseline.canvasW} canvasH={cmpChanges.baseline.canvasH} overlays={overlays} kinds={kinds} />
-                                        <div style={{ width: 1, background: 'rgba(255,255,255,0.18)' }} />
-                                        <CompareColumn accent="#81c995" tag="LATEST" label={compare.targetLabel} url={compare.targetUrl} run={runTarget} onRun={() => setRunTarget(true)} onRestore={() => openRestore(targetIdx)} heavy={cmpTargetHeavy} changes={cmpChanges.target.changes} canvasW={cmpChanges.target.canvasW} canvasH={cmpChanges.target.canvasH} overlays={overlays} kinds={kinds} />
-                                    </div>
-                                </React.Fragment>
-                            </div>
-                            <div style={{ display: visualMode === 'blend' ? 'contents' : 'none' }}>
-                                {(hasBlended && runBase && runTarget) ? (
-                                    <BlendView baseUrl={compare.baseUrl} targetUrl={compare.targetUrl} baseLabel={compare.baseLabel} targetLabel={compare.targetLabel} />
-                                ) : (
-                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: '#9aa0a6', background: '#0b0c10' }}>
-                                        <div style={{ display: 'flex', gap: 8 }}>
-                                            <HeavyBadge a={cmpBaseHeavy} label="Previous" />
                                             <HeavyBadge a={cmpTargetHeavy} label="Latest" />
                                         </div>
-                                        <button type="button" style={btn('#1a7a3f')} onClick={() => { setRunBase(true); setRunTarget(true); setHasBlended(true); }}>▶ Run both to blend</button>
-                                        <span style={{ fontSize: 13, color: cmpCombined === 'heavy' ? '#f85149' : '#9aa0a6' }}>Blend stacks both live renders, so both must run{cmpCombined === 'heavy' ? ' — these look HEAVY' : ''}.</span>
+                                    ) : null}
+                                    <CompareColumn accent="#81c995" tag="VERSION" label={compare.targetLabel} url={compare.targetUrl} run={runTarget} onRun={() => setRunTarget(true)} onRestore={() => openRestore(targetIdx)} heavy={cmpTargetHeavy} changes={[]} canvasW={0} canvasH={0} overlays={false} kinds={kinds} />
+                                </React.Fragment>
+                            ) : (
+                                /* Multi-version view: toolbar, two columns, blend */
+                                <React.Fragment>
+                                    {/* persistent overlay toggle + per-kind show/hide + summary */}
+                                    {(() => {
+                                        const a = cmpChanges.target.changes.filter((c) => c.kind === 'added').length;
+                                        const md = cmpChanges.target.changes.filter((c) => c.kind === 'moved' || c.kind === 'retitled').length
+                                            + cmpChanges.baseline.changes.filter((c) => c.kind === 'moved').length;
+                                        const rm = cmpChanges.baseline.changes.filter((c) => c.kind === 'removed').length;
+                                        const kindBox = (key, color, label, n) => (
+                                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: overlays ? 'pointer' : 'default', fontSize: 11, color: overlays ? color : '#5a636e', opacity: overlays ? 1 : 0.5 }}>
+                                                <input type="checkbox" disabled={!overlays} checked={kinds[key]} onChange={(e) => setKinds((k) => ({ ...k, [key]: e.target.checked }))} />
+                                                <span style={{ width: 10, height: 10, borderRadius: 2, border: `1.5px ${key === 'removed' ? 'dashed' : 'solid'} ${color}`, background: color + '22', display: 'inline-block' }} />
+                                                {label} ({n})
+                                            </label>
+                                        );
+                                        const modeSwitch = (
+                                            <div style={{ display: 'inline-flex', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 4, overflow: 'hidden' }}>
+                                                {[['boxes', 'Boxes'], ['blend', 'Blend']].map(([m, l]) => (
+                                                    <button key={m} type="button" onClick={() => { setVisualMode(m); if (m === 'blend') setHasBlended(true); }} title={m === 'blend' ? 'Stack both renders and blend (difference / onion-skin)' : 'Draw change boxes on each render, side by side'} style={{ background: visualMode === m ? '#1a73e8' : 'transparent', color: '#e6e6e6', border: 0, padding: '4px 12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>{l}</button>
+                                                ))}
+                                            </div>
+                                        );
+                                        return (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '6px 12px', background: '#0e1116', borderBottom: '1px solid rgba(255,255,255,0.08)', flexWrap: 'wrap' }}>
+                                                {modeSwitch}
+                                                {visualMode === 'boxes' ? (
+                                                    <React.Fragment>
+                                                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: 12, color: '#e6e6e6' }}>
+                                                            <input type="checkbox" checked={overlays} onChange={(e) => setOverlays(e.target.checked)} />
+                                                            Highlight changes
+                                                        </label>
+                                                        {kindBox('added', '#46aa5a', 'Added', a)}
+                                                        {kindBox('modified', '#d6b35a', 'Modified', md)}
+                                                        {kindBox('removed', '#e0505a', 'Removed', rm)}
+                                                        {!a && !md && !rm ? <span style={{ color: '#6b7177', fontSize: 11 }}>no structural change</span> : null}
+                                                        <span style={{ flex: 1 }} />
+                                                        <span style={{ fontSize: 11, color: '#6b7177' }}>boxes drawn over the live render (Run a side to see them)</span>
+                                                    </React.Fragment>
+                                                ) : (
+                                                    <React.Fragment>
+                                                        <span style={{ flex: 1 }} />
+                                                        <span style={{ fontSize: 11, color: '#6b7177' }}>both renders stacked &amp; blended — identical pixels cancel, changes glow</span>
+                                                    </React.Fragment>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
+                                    {/* Boxes pair is always visible when run flags are set. BlendView is
+                                        only mounted after blend mode is first activated (hasBlended), then
+                                        persisted with display:none so iframes survive mode toggles without
+                                        re-running their searches. */}
+                                    <div style={{ display: visualMode === 'boxes' ? 'contents' : 'none' }}>
+                                        <React.Fragment>
+                                            {!runBase || !runTarget ? (
+                                                <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12, background: '#0e1116', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                                                    <button type="button" style={btn('#1a7a3f')} onClick={() => { setRunBase(true); setRunTarget(true); }}>▶ Run both</button>
+                                                    <span style={{ color: cmpCombined === 'heavy' ? '#f85149' : '#e8a87c', fontSize: 12 }}>
+                                                        ⚠ Rendering runs each dashboard's searches live{cmpCombined === 'heavy' ? ' — these look HEAVY' : ''}. Run both, or one side at a time.
+                                                    </span>
+                                                    <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+                                                        <HeavyBadge a={cmpBaseHeavy} label="Older" />
+                                                        <HeavyBadge a={cmpTargetHeavy} label="Newer" />
+                                                    </div>
+                                                </div>
+                                            ) : null}
+                                            <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+                                                <CompareColumn accent="#8ab4f8" tag="OLDER" label={compare.baseLabel} url={compare.baseUrl} run={runBase} onRun={() => setRunBase(true)} onRestore={() => openRestore(baseIdx)} heavy={cmpBaseHeavy} changes={cmpChanges.baseline.changes} canvasW={cmpChanges.baseline.canvasW} canvasH={cmpChanges.baseline.canvasH} overlays={overlays} kinds={kinds} />
+                                                <div style={{ width: 1, background: 'rgba(255,255,255,0.18)' }} />
+                                                <CompareColumn accent="#81c995" tag="NEWER" label={compare.targetLabel} url={compare.targetUrl} run={runTarget} onRun={() => setRunTarget(true)} onRestore={() => openRestore(targetIdx)} heavy={cmpTargetHeavy} changes={cmpChanges.target.changes} canvasW={cmpChanges.target.canvasW} canvasH={cmpChanges.target.canvasH} overlays={overlays} kinds={kinds} />
+                                            </div>
+                                        </React.Fragment>
                                     </div>
-                                )}
-                            </div>
+                                    <div style={{ display: visualMode === 'blend' ? 'contents' : 'none' }}>
+                                        {(hasBlended && runBase && runTarget) ? (
+                                            <BlendView baseUrl={compare.baseUrl} targetUrl={compare.targetUrl} baseLabel={compare.baseLabel} targetLabel={compare.targetLabel} />
+                                        ) : (
+                                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: '#9aa0a6', background: '#0b0c10' }}>
+                                                <div style={{ display: 'flex', gap: 8 }}>
+                                                    <HeavyBadge a={cmpBaseHeavy} label="Older" />
+                                                    <HeavyBadge a={cmpTargetHeavy} label="Newer" />
+                                                </div>
+                                                <button type="button" style={btn('#1a7a3f')} onClick={() => { setRunBase(true); setRunTarget(true); setHasBlended(true); }}>▶ Run both to blend</button>
+                                                <span style={{ fontSize: 13, color: cmpCombined === 'heavy' ? '#f85149' : '#9aa0a6' }}>Blend stacks both live renders, so both must run{cmpCombined === 'heavy' ? ' — these look HEAVY' : ''}.</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </React.Fragment>
+                            )}
                         </div>
                     ) : cmpTab === 'source' ? (
-                        <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: 1, background: 'rgba(255,255,255,0.18)' }}>
-                            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                                <div style={{ padding: '4px 12px', background: '#11151a', color: '#8ab4f8', fontFamily: MONO, fontSize: 11, borderBottom: '2px solid #8ab4f8' }}>
-                                    <b>PREVIOUS</b> · {compare.baseLabel}
-                                </div>
-                                <div style={{ flex: 1, minHeight: 0 }}>
-                                    <SourceView raw={compare.baseXml} title={sel ? sel.title : ''} app={sel ? sel.appName : ''} initialDepth={-1} />
-                                </div>
-                            </div>
-                            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                        singleVersion ? (
+                            /* Single-version: one SourceView panel */
+                            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                                 <div style={{ padding: '4px 12px', background: '#11151a', color: '#81c995', fontFamily: MONO, fontSize: 11, borderBottom: '2px solid #81c995' }}>
-                                    <b>LATEST</b> · {compare.targetLabel}
+                                    <b>VERSION</b> · {compare.targetLabel}
                                 </div>
                                 <div style={{ flex: 1, minHeight: 0 }}>
                                     <SourceView raw={compare.targetXml} title={sel ? sel.title : ''} app={sel ? sel.appName : ''} initialDepth={-1} />
                                 </div>
                             </div>
-                        </div>
+                        ) : (
+                            <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: 1, background: 'rgba(255,255,255,0.18)' }}>
+                                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                                    <div style={{ padding: '4px 12px', background: '#11151a', color: '#8ab4f8', fontFamily: MONO, fontSize: 11, borderBottom: '2px solid #8ab4f8' }}>
+                                        <b>OLDER</b> · {compare.baseLabel}
+                                    </div>
+                                    <div style={{ flex: 1, minHeight: 0 }}>
+                                        <SourceView raw={compare.baseXml} title={sel ? sel.title : ''} app={sel ? sel.appName : ''} initialDepth={-1} />
+                                    </div>
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                                    <div style={{ padding: '4px 12px', background: '#11151a', color: '#81c995', fontFamily: MONO, fontSize: 11, borderBottom: '2px solid #81c995' }}>
+                                        <b>NEWER</b> · {compare.targetLabel}
+                                    </div>
+                                    <div style={{ flex: 1, minHeight: 0 }}>
+                                        <SourceView raw={compare.targetXml} title={sel ? sel.title : ''} app={sel ? sel.appName : ''} initialDepth={-1} />
+                                    </div>
+                                </div>
+                            </div>
+                        )
                     ) : (
                         <SourceDiff a={compare.baseXml} b={compare.targetXml} />
                     )}
@@ -1871,7 +1948,7 @@ function BlendView({ baseUrl, targetUrl, baseLabel, targetLabel }) {
                 </div>
                 {/* opacity/blend slider */}
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#e6e6e6' }}>
-                    {mode === 'onion' ? 'Previous ⇄ Latest' : 'Intensity'}
+                    {mode === 'onion' ? 'Older ⇄ Newer' : 'Intensity'}
                     <input type="range" min={0} max={100} value={op} onChange={(e) => setOp(Number(e.target.value))} style={{ width: 180 }} />
                     <span style={{ fontFamily: MONO, fontSize: 11, color: '#9aa0a6', width: 34, textAlign: 'right' }}>{op}%</span>
                 </label>
@@ -1885,8 +1962,8 @@ function BlendView({ baseUrl, targetUrl, baseLabel, targetLabel }) {
                     its own layer, so a panel that moved between versions can be
                     lined up without ambiguity. Colours match the version labels. */}
                 {[
-                    ['▼ PREVIOUS', '#8ab4f8', prevY, setPrevY],
-                    ['▲ LATEST', '#81c995', latestY, setLatestY],
+                    ['▼ OLDER', '#8ab4f8', prevY, setPrevY],
+                    ['▲ NEWER', '#81c995', latestY, setLatestY],
                 ].map(([lbl, col, val, set]) => (
                     <label key={lbl} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: col }}
                         title={'Shift ' + lbl.slice(2) + ' up/down to align it with the other version'}>
@@ -1926,8 +2003,8 @@ function BlendView({ baseUrl, targetUrl, baseLabel, targetLabel }) {
                         style={topStyle} />
                     {/* version labels — pinned inside the scaled container */}
                     <div style={{ position: 'absolute', left: 8, top: 8, display: 'flex', gap: 6, pointerEvents: 'none', zIndex: 2 }}>
-                        <span style={{ background: 'rgba(11,12,16,0.78)', color: '#8ab4f8', fontFamily: MONO, fontSize: 10, padding: '2px 7px', borderRadius: 3 }}>▼ PREVIOUS · {baseLabel}</span>
-                        <span style={{ background: 'rgba(11,12,16,0.78)', color: '#81c995', fontFamily: MONO, fontSize: 10, padding: '2px 7px', borderRadius: 3 }}>▲ LATEST · {targetLabel}</span>
+                        <span style={{ background: 'rgba(11,12,16,0.78)', color: '#8ab4f8', fontFamily: MONO, fontSize: 10, padding: '2px 7px', borderRadius: 3 }}>▼ OLDER · {baseLabel}</span>
+                        <span style={{ background: 'rgba(11,12,16,0.78)', color: '#81c995', fontFamily: MONO, fontSize: 10, padding: '2px 7px', borderRadius: 3 }}>▲ NEWER · {targetLabel}</span>
                     </div>
                 </div>
             </div>
@@ -2037,8 +2114,8 @@ function SourceDiff({ a, b }) {
             ) : (
                 <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                     <div style={{ display: 'flex', fontFamily: MONO, fontSize: 11, color: '#9aa0a6', background: '#0e1116', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                        <div style={{ flex: 1, padding: '4px 12px', borderRight: '1px solid rgba(255,255,255,0.12)', color: '#8ab4f8' }}>PREVIOUS</div>
-                        <div style={{ flex: 1, padding: '4px 12px', color: '#81c995' }}>LATEST</div>
+                        <div style={{ flex: 1, padding: '4px 12px', borderRight: '1px solid rgba(255,255,255,0.12)', color: '#8ab4f8' }}>OLDER</div>
+                        <div style={{ flex: 1, padding: '4px 12px', color: '#81c995' }}>NEWER</div>
                     </div>
                     <div style={{ flex: 1, overflow: 'auto', fontFamily: MONO, fontSize: 12, lineHeight: 1.5, padding: '6px 0', background: '#0b0c10' }}>
                         {(showAllDiff || rows.length <= DIFF_CAP ? rows : rows.slice(0, DIFF_CAP)).map((row, i) => (

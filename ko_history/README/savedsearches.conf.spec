@@ -30,56 +30,41 @@ display.visualizations.custom.ko_history.dashboard_preview.urlParams = <string>
 display.visualizations.custom.ko_history.dashboard_preview.scale = <string>
 display.visualizations.custom.ko_history.dashboard_preview.background = <string>
 
-# Schematic DS-host diff viz (dashboard_preview_ds).
-# Include _time in the driving search's table (e.g. "| table role _time title data")
-# to show each column's version timestamp under its Baseline/Target label.
-display.visualizations.custom.ko_history.dashboard_preview_ds.dataField = <string>
-display.visualizations.custom.ko_history.dashboard_preview_ds.roleField = <string>
-display.visualizations.custom.ko_history.dashboard_preview_ds.baselineValue = <string>
-display.visualizations.custom.ko_history.dashboard_preview_ds.targetValue = <string>
-display.visualizations.custom.ko_history.dashboard_preview_ds.showSplit = <boolean>
-display.visualizations.custom.ko_history.dashboard_preview_ds.showLive = <boolean>
-display.visualizations.custom.ko_history.dashboard_preview_ds.liveMock = <boolean>
-display.visualizations.custom.ko_history.dashboard_preview_ds.showLabels = <boolean>
-display.visualizations.custom.ko_history.dashboard_preview_ds.showChangeList = <boolean>
-display.visualizations.custom.ko_history.dashboard_preview_ds.showSourceDiff = <boolean>
-display.visualizations.custom.ko_history.dashboard_preview_ds.background = <string>
-
-# Foldable syntax-highlighted source viewer (json_viewer). 16 options.
+# Foldable syntax-highlighted source viewer (source_viewer). 16 options.
 # Reads columns: dataField (KO source), pathField (display name), appField (app name).
 # In diff mode the search must supply a roleField column with baselineValue / targetValue rows.
-display.visualizations.custom.ko_history.json_viewer.dataField = <string>
+display.visualizations.custom.ko_history.source_viewer.dataField = <string>
 # * Default: 'data'. Column containing the raw KO source (Studio JSON or Simple XML).
-display.visualizations.custom.ko_history.json_viewer.pathField = <string>
+display.visualizations.custom.ko_history.source_viewer.pathField = <string>
 # * Default: 'title'. Column used as the display name / path shown in the header.
-display.visualizations.custom.ko_history.json_viewer.appField = <string>
+display.visualizations.custom.ko_history.source_viewer.appField = <string>
 # * Default: 'app'. Column providing the app name shown alongside the title.
-display.visualizations.custom.ko_history.json_viewer.indent = <integer>
+display.visualizations.custom.ko_history.source_viewer.indent = <integer>
 # * Default: 2. JSON pretty-print indent width (clamped 1–8).
-display.visualizations.custom.ko_history.json_viewer.initialDepth = <integer>
+display.visualizations.custom.ko_history.source_viewer.initialDepth = <integer>
 # * Default: 0 (fully collapsed). Depth to auto-expand on first render.
-display.visualizations.custom.ko_history.json_viewer.showLineNumbers = <boolean>
+display.visualizations.custom.ko_history.source_viewer.showLineNumbers = <boolean>
 # * Default: true.
-display.visualizations.custom.ko_history.json_viewer.showFooter = <boolean>
+display.visualizations.custom.ko_history.source_viewer.showFooter = <boolean>
 # * Default: true. Shows the line/character count footer.
-display.visualizations.custom.ko_history.json_viewer.wrap = <boolean>
+display.visualizations.custom.ko_history.source_viewer.wrap = <boolean>
 # * Default: false. Word-wrap long lines.
-display.visualizations.custom.ko_history.json_viewer.banding = <boolean>
+display.visualizations.custom.ko_history.source_viewer.banding = <boolean>
 # * Default: true. Alternate row shading.
-display.visualizations.custom.ko_history.json_viewer.showCopy = <boolean>
+display.visualizations.custom.ko_history.source_viewer.showCopy = <boolean>
 # * Default: true. Show copy-to-clipboard button.
-display.visualizations.custom.ko_history.json_viewer.themeMode = <string>
+display.visualizations.custom.ko_history.source_viewer.themeMode = <string>
 # * Default: 'auto'. One of 'light', 'dark', or 'auto' (follows Splunk theme token).
-display.visualizations.custom.ko_history.json_viewer.mode = <string>
+display.visualizations.custom.ko_history.source_viewer.mode = <string>
 # * Default: 'auto'. One of 'auto', 'single' (single version), or 'diff' (two-row compare).
 #   'auto' shows diff when a roleField column is present, single otherwise.
-display.visualizations.custom.ko_history.json_viewer.diffView = <string>
+display.visualizations.custom.ko_history.source_viewer.diffView = <string>
 # * Default: 'split'. Diff layout: 'split' (side-by-side) or 'unified'.
-display.visualizations.custom.ko_history.json_viewer.roleField = <string>
+display.visualizations.custom.ko_history.source_viewer.roleField = <string>
 # * Default: 'role'. Column that identifies which row is baseline vs. target.
-display.visualizations.custom.ko_history.json_viewer.baselineValue = <string>
+display.visualizations.custom.ko_history.source_viewer.baselineValue = <string>
 # * Default: 'baseline'. Value in roleField that marks the older / reference version.
-display.visualizations.custom.ko_history.json_viewer.targetValue = <string>
+display.visualizations.custom.ko_history.source_viewer.targetValue = <string>
 # * Default: 'target'. Value in roleField that marks the newer / subject version.
 
 # KO record card — bespoke field profile for reports/alerts; generic profile for

@@ -1,5 +1,5 @@
 /*
- * sourceLines — shared KO source tokenizer used by the json_viewer custom viz
+ * sourceLines — shared KO source tokenizer used by the source_viewer custom viz
  * and the React wrapper's SourceView (via src/util/jsonView.js).
  *
  * Exports: detect, jsonLines, xmlLines, esc.
@@ -22,7 +22,7 @@
  *    `escHtml` for the wrapper which imports it under that name.
  * 2. The viz's emit() passed a `parentFold` 4th argument (stored in line.parent)
  *    that jsonView.js omitted (jsonView never stores line.parent). The shared
- *    module omits it — json_viewer never used line.parent for rendering.
+ *    module omits it — source_viewer never used line.parent for rendering.
  * 3. jsonLines in jsonView.js used an arrow `tok` whereas the viz used a plain
  *    function. Behaviour identical; we use a plain function here (ES5).
  */

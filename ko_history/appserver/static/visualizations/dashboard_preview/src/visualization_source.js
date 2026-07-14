@@ -704,11 +704,11 @@ define([
 
             var meta = el('dl', 'dashboard-preview-viz__meta');
             function row(k, v) { if (v || v === 0) { meta.appendChild(el('dt', null, k)); meta.appendChild(el('dd', null, v)); } }
-            row('Latest', info.label || '(no label)');
+            row('Newer', info.label || '(no label)');
             row('Type', info.kind);
-            if (binfo) row('Previous', binfo.label || '(no label)');
+            if (binfo) row('Older', binfo.label || '(no label)');
             row('Origin app', p.pick.originApp);
-            row('Latest size', info.sizeKb + ' KB');
+            row('Newer size', info.sizeKb + ' KB');
             card.appendChild(meta);
 
             var btnRow = el('div', 'dashboard-preview-viz__buttons');

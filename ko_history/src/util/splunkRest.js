@@ -246,6 +246,7 @@ export function restoreView(appName, viewName, xmlData, allowOverwrite) {
 const SS_RESTORE_DROP = {
     owner: 1, sharing: 1, title: 1, appName: 1, app: 1, file: 1, updated: 1,
     next_scheduled_time: 1, is_visible: 1, qualifiedSearch: 1,
+    user: 1, // audit-only field — must not be written into a restored saved search
 };
 // Reduce a captured saved-search field map to a writable POST body: drop ACL +
 // read-only keys and any eai:* / empty values (empties would error or clobber).

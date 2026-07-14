@@ -6,7 +6,7 @@
  * with humanized cron, Trigger Actions as one chip per ACTIVE action, and an
  * Alert Condition section shown only for real alerts).
  *
- * DOM viz (NOT Canvas) — like json_viewer — so SPL stays selectable/copyable
+ * DOM viz (NOT Canvas) — like source_viewer — so SPL stays selectable/copyable
  * and the card reflows. Sandbox-safe: pure client-side, no fetch/iframe.
  * Theme via root class .korc--dark / .korc--light (Splunk Enterprise tokens
  * live in visualization.css). Data contract: one ROW_MAJOR result row whose
@@ -18,7 +18,7 @@ define([
 ], function (SplunkVisualizationBase, SplunkVisualizationUtils) {
 
     // ── render-key hash (djb2 + FNV-1a, ES5) ─────────────────────────────────
-    // Duplicated from json_viewer/visualization_source.js — shared-module
+    // Duplicated from source_viewer/visualization_source.js — shared-module
     // extraction is deferred to the roadmap consolidation pass.
     function hashString(s) {
         if (!s) return '0_0';
@@ -276,7 +276,7 @@ define([
             var sec = el('div', 'korc__sec korc__diff');
             var h = el('div', 'korc__sechead');
             h.appendChild(el('span', 'korc__secidx', 'Δ'));
-            h.appendChild(el('span', 'korc__secname', 'Changes · previous → latest'));
+            h.appendChild(el('span', 'korc__secname', 'Changes · older → newer'));
             h.appendChild(el('span', 'korc__secrule'));
             sec.appendChild(h);
 
@@ -303,8 +303,8 @@ define([
 
             // meta line: previous → latest + counts
             var meta = el('div', 'korc__diffmeta');
-            var pseal = el('span', 'korc__dseal prev'); pseal.appendChild(document.createTextNode('PREVIOUS' + (fP('updated') ? ' · ' + fP('updated') : '')));
-            var lseal = el('span', 'korc__dseal latest'); lseal.appendChild(document.createTextNode('LATEST' + (fL('updated') ? ' · ' + fL('updated') : '')));
+            var pseal = el('span', 'korc__dseal prev'); pseal.appendChild(document.createTextNode('OLDER' + (fP('updated') ? ' · ' + fP('updated') : '')));
+            var lseal = el('span', 'korc__dseal latest'); lseal.appendChild(document.createTextNode('NEWER' + (fL('updated') ? ' · ' + fL('updated') : '')));
             meta.appendChild(pseal);
             meta.appendChild(el('span', 'korc__darrow', '→'));
             meta.appendChild(lseal);
@@ -356,7 +356,7 @@ define([
             if (showCopy && latest) {
                 var btn = el('button', 'korc__copy'); btn.type = 'button';
                 btn.appendChild(iconSvg('M9 9h11v11H9z|M5 15V5a2 2 0 0 1 2-2h8', 'korc__copyic'));
-                var lbl = el('span', 'korc__copylbl', 'Copy latest');
+                var lbl = el('span', 'korc__copylbl', 'Copy newer');
                 btn.appendChild(lbl);
                 btn.onclick = function () { copyText(latest, btn, lbl); };
                 bar.appendChild(btn);

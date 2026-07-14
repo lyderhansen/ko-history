@@ -3,7 +3,7 @@ import { buildView } from '../util/jsonView';
 
 /*
  * SourceView — React renderer for the jsonView line model. Mirrors what the
- * bundled ko_history.json_viewer custom viz draws (foldable, syntax-highlighted,
+ * bundled ko_history.source_viewer custom viz draws (foldable, syntax-highlighted,
  * line-numbered KO source) but client-side in the wrapper, no Splunk viz
  * round-trip. Dark-only (the wrapper is dark). See [[json-viewer-viz]].
  */
@@ -51,6 +51,9 @@ const CSS = `
 .kojv__tg{color:var(--t-key);font-weight:500;}
 .kojv__cd{color:var(--t-bool);font-style:italic;}
 .kojv__cm{color:var(--text-faint);font-style:italic;}
+.kojv__truncrow{cursor:pointer;background:transparent;border:none;padding:0;font:inherit;text-align:left;}
+.kojv__truncrow .kojv__code{color:var(--text-faint);font-style:italic;}
+.kojv__truncrow:hover .kojv__code{text-decoration:underline;color:var(--text-dim);}
 `;
 
 function injectStyle() {
@@ -198,12 +201,12 @@ export default function SourceView({ raw, indent = 2, initialDepth = 0, title, a
     }
     if (!showAll && totalVisible > LINE_CAP) {
         rows.push(
-            <div key="show-all" className="kojv__line" onClick={() => setShowAll(true)} style={{ cursor: 'pointer' }}>
-                <span className="kojv__ln" />
-                <span className="kojv__code" style={{ color: 'var(--primary)' }}>
-                    {'… ' + (totalVisible - LINE_CAP).toLocaleString() + ' more lines — show all'}
+            <button key="show-all" type="button" className="kojv__truncrow kojv__line"
+                    onClick={() => setShowAll(true)}>
+                <span className="kojv__code">
+                    {'truncated — showing first 4,000 of ' + totalVisible.toLocaleString() + ' lines · click to show all'}
                 </span>
-            </div>
+            </button>
         );
     }
 

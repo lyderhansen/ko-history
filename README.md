@@ -69,7 +69,7 @@ Cloud, create the `ko_history` index via ACS / the Cloud console before installi
 
 ## Status
 
-Version **1.0.2**.
+Version **1.0.3**.
 
 ## License
 

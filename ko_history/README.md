@@ -17,10 +17,10 @@ A dashboard disappears, a critical alert gets overwritten, a report is lost — 
 |------|---------|
 | `default/savedsearches.conf` | 17 stanzas: 7 type backups, 1 combined delete-audit, 1 lookup builder, 1 usage collector, 7 one-time backfills — all feeding `index=ko_history`. All ship disabled. |
 | `default/data/ui/views/` | The dashboards: `wrapper.xml` (React page host), `ko_version.xml`, `ko_version_ds.xml`, `ko_rest_explorer.xml`, `ko_help.xml`. |
-| `appserver/static/visualizations/` | Four bundled custom vizs (see below). |
+| `appserver/static/visualizations/` | Three bundled custom vizs (see below). |
 | `appserver/static/pages/wrapper.js` + `appserver/templates/wrapper.html` | The React app page (`@splunk/react-page`). |
 | `default/data/ui/nav/default.xml` | App navigation. |
-| `default/visualizations.conf` | Registers the four custom vizs. |
+| `default/visualizations.conf` | Registers the three custom vizs. |
 | `metadata/default.meta` | ACL (read: \*, write: admin/sc\_admin; vizs exported system-wide). |
 
 ### The scheduled searches (17 stanzas)
@@ -60,13 +60,12 @@ Seven **backup** searches run on a staggered 15-minute cron (`realtime_schedule 
 
 All write to `index=ko_history`.
 
-### The four bundled visualizations
+### The three bundled visualizations
 
 | Viz | Role |
 |---|---|
 | `dashboard_preview` | Renders a saved dashboard (Studio or Simple XML) inline and overlays a visual diff between two versions. Use inside **classic Simple XML** hosts. |
-| `dashboard_preview_ds` | Sandbox-proof **schematic** preview + diff that works inside **Dashboard Studio** (and Simple XML) — panel layout coloured by the diff. |
-| `json_viewer` | KO source (Studio JSON or Simple XML) as a syntax-highlighted, foldable, line-numbered listing with copy-to-clipboard. Sandbox-safe. |
+| `source_viewer` | KO source (Studio JSON or Simple XML) as a syntax-highlighted, foldable, line-numbered listing with copy-to-clipboard. Sandbox-safe. |
 | `ko_viewer` | A Splunk-native **record card** for one KO version — bespoke profile for reports/alerts (definition, schedule, trigger actions, alert condition), generic profile for macros / event types / field extractions / etc. |
 
 ## Install
@@ -90,7 +89,7 @@ The **`ko_history` index** must exist before the capture searches start writing.
 
 ### Permissions
 
-`metadata/default.meta` grants read to all roles, write to `admin` / `sc_admin`. The custom vizs are exported `system`-wide so they appear in the viz picker of dashboards in any app; preview slots are always written into the `ko_history` app only. **Restore** and the live-preview write path require write on `data/ui/views` in `ko_history` for the acting user. **Do not broaden the `[views]` write stanza to additional roles.** Because all four vizs export as `system`, any role granted `[views]` write in this app gains a view create/overwrite primitive reachable from any dashboard fleet-wide — gated only by the client-side approval prompt, which is convenience, not security. If non-admin roles must use the preview or restore features, implement a constrained server-side endpoint (a custom REST handler that enforces per-user/per-slot limits) rather than expanding raw view-write permissions.
+`metadata/default.meta` grants read to all roles, write to `admin` / `sc_admin`. The custom vizs are exported `system`-wide so they appear in the viz picker of dashboards in any app; preview slots are always written into the `ko_history` app only. **Restore** and the live-preview write path require write on `data/ui/views` in `ko_history` for the acting user. **Do not broaden the `[views]` write stanza to additional roles.** Because all three vizs export as `system`, any role granted `[views]` write in this app gains a view create/overwrite primitive reachable from any dashboard fleet-wide — gated only by the client-side approval prompt, which is convenience, not security. If non-admin roles must use the preview or restore features, implement a constrained server-side endpoint (a custom REST handler that enforces per-user/per-slot limits) rather than expanding raw view-write permissions.
 
 ### Excluding noisy hosts from the delete audit
 
@@ -124,6 +123,7 @@ Each backup's `where updated > now-900s` clause is what makes it incremental —
 
 | Version | Notes |
 |---------|-------|
+| 1.0.3   | 12 MB slimmer tarball (unused static assets removed). **Viz renames/removals — action required if you reference these ids from other dashboards:** `json_viewer` was **renamed** to `source_viewer` (`ko_history.json_viewer` → `ko_history.source_viewer`); `dashboard_preview_ds` was **removed** (dashboards using `ko_history.dashboard_preview_ds` will lose that panel). Also: expand/view UX improvements, Newer/Older navigation in the compare panel, KPI filter controls. |
 | 1.0.2   | Deep-audit cleanup: live-render teardown leak fix, unified empty-data policy across all four vizs, audit rows now show *who* deleted/moved (`By` column + history), `realtime_schedule` restored faithfully, index schema trimmed (`userName` and SPL no-ops dropped), DS page-load scans 4→2, icons shipped from `static/` only. |
 | 1.0.1   | Hardening release: all capture searches ship disabled, scheduler no-skip (`realtime_schedule=0`, `schedule_window=auto`), source-view render caps, viz render-key fixes. |
 | 1.0.0   | Initial public release. Seven KO types (views, reports/alerts, macros, event types, field extractions, lookups, tags); combined `ko_all_delete_audit`; one-time backfill searches; per-user preview slots; AppInspect-clean tarball. |

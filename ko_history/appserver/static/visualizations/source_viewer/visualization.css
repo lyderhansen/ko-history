@@ -1,4 +1,4 @@
-/* ko_history json_viewer — green-bar line-printer listing + evidence tag.
+/* ko_history source_viewer — green-bar line-printer listing + evidence tag.
  * Theme is applied via a root modifier class (.kojv--dark / .kojv--light)
  * because Dashboard Studio sets theme per-viz, not via :root[data-theme]. */
 
@@ -206,3 +206,8 @@
     flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
     color: var(--text-dim); font-size: 13px; padding: 24px; text-align: center;
 }
+
+/* truncation notice — click-to-expand control (both listing and diff paths) */
+.kojv__truncrow { cursor: pointer; }
+.kojv__truncrow .kojv__code { color: var(--text-faint); font-style: italic; }
+.kojv__truncrow:hover .kojv__code { text-decoration: underline; color: var(--text-dim); }
