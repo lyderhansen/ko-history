@@ -22,19 +22,7 @@ function canRestoreClass(koClass) {
     return false;
 }
 
-// Human label for the "coming soon" affordance.
-var LABELS = {
-    macro: 'Macro', eventtype: 'Event type', fieldextraction: 'Field extraction',
-    extraction: 'Field extraction', lookup: 'Lookup', tag: 'Tag',
-    dashboard: 'Dashboard', savedsearch: 'Saved search'
-};
-function comingSoonLabel(koClass) {
-    var c = norm(koClass);
-    return LABELS[c] || (c ? c.charAt(0).toUpperCase() + c.slice(1) : 'Object');
-}
-
 module.exports = {
     RESTORABLE_CLASSES: RESTORABLE_CLASSES,
-    canRestoreClass: canRestoreClass,
-    comingSoonLabel: comingSoonLabel
+    canRestoreClass: canRestoreClass
 };

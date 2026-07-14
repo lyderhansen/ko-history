@@ -133,6 +133,14 @@ EXCLUDE_FLAGS=(
     --exclude="$APP_NAME/package.json"
     --exclude="$APP_NAME/package-lock.json"
     --exclude="$APP_NAME/webpack.config.js"
+    # App icons — modern Splunk + AppInspect read static/; appserver/static/ copies
+    # are byte-identical legacy duplicates kept in git pending live launcher-icon
+    # verification on the demo instance before being deleted from git.
+    --exclude="$APP_NAME/appserver/static/appIcon.png"
+    --exclude="$APP_NAME/appserver/static/appIcon_2x.png"
+    --exclude="$APP_NAME/appserver/static/appIcon_3x.png"
+    --exclude="$APP_NAME/appserver/static/appIconAlt.png"
+    --exclude="$APP_NAME/appserver/static/appIconAlt_2x.png"
     # Developer test/scratch views — kept in git as harnesses, not shipped.
     # ko_rest_explorer.xml is nav-linked and stays in the package.
     --exclude="$APP_NAME/default/data/ui/views/ko_diff_test.xml"

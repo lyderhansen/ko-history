@@ -124,6 +124,7 @@ Each backup's `where updated > now-900s` clause is what makes it incremental —
 
 | Version | Notes |
 |---------|-------|
+| 1.0.2   | Deep-audit cleanup: live-render teardown leak fix, unified empty-data policy across all four vizs, audit rows now show *who* deleted/moved (`By` column + history), `realtime_schedule` restored faithfully, index schema trimmed (`userName` and SPL no-ops dropped), DS page-load scans 4→2, icons shipped from `static/` only. |
 | 1.0.1   | Hardening release: all capture searches ship disabled, scheduler no-skip (`realtime_schedule=0`, `schedule_window=auto`), source-view render caps, viz render-key fixes. |
 | 1.0.0   | Initial public release. Seven KO types (views, reports/alerts, macros, event types, field extractions, lookups, tags); combined `ko_all_delete_audit`; one-time backfill searches; per-user preview slots; AppInspect-clean tarball. |
 | 0.1.x   | Pre-release iterations: single-app merge, React wrapper, visual compare + restore, four bundled vizs, DS dashboard, usage statistics. |

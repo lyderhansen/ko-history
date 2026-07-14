@@ -422,8 +422,8 @@ define([
             this.overlay = el('div', 'dashboard-diff-viz__overlay');
             this.el.appendChild(this.overlay);
 
-            this._lastGoodData = null;
             this._lastRenderKey = null;
+            this._removed = false;
             this._ui = null;  // live toggles {labels, changeList, sourceDiff} — override formatter defaults
 
             this._showPlaceholder('Awaiting data', 'Provide two dashboard versions (older + newer) to compare.');
@@ -435,18 +435,15 @@ define([
 
         formatData: function(data) {
             if (!data || !data.rows || data.rows.length === 0) {
-                if (this._lastGoodData) return this._lastGoodData;
                 return { empty: true, colIdx: {}, rows: [] };
             }
             var fields = data.fields || [], colIdx = {};
             for (var i = 0; i < fields.length; i++) colIdx[fields[i].name] = i;
-            var result = { empty: false, colIdx: colIdx, rows: data.rows };
-            this._lastGoodData = result;
-            return result;
+            return { empty: false, colIdx: colIdx, rows: data.rows };
         },
 
         updateView: function(data, config) {
-            if (!data) { if (this._lastGoodData) { data = this._lastGoodData; } else { return; } }
+            if (!data) { return; }
 
             var ns = this.getPropertyNamespaceInfo().propertyNamespace;
             var c = {
@@ -470,10 +467,12 @@ define([
             if (!this._ui) this._ui = { labels: c.showLabels, changeList: c.showChangeList, sourceDiff: c.showSourceDiff, split: c.showSplit, live: c.showLive };
 
             if (data.empty || !data.rows || data.rows.length === 0) {
+                this._lastRenderKey = null;
                 this._showPlaceholder('Awaiting data', 'No rows from the search yet.');
                 return;
             }
             if (data.colIdx[c.dataField] === undefined) {
+                this._lastRenderKey = null;
                 this._showPlaceholder('Source column not found',
                     'Field "' + c.dataField + '" not in results. Columns: ' + Object.keys(data.colIdx).join(', '));
                 return;
@@ -481,6 +480,7 @@ define([
 
             var pick = this._pickVersions(data, c);
             if (!pick.targetXml) {
+                this._lastRenderKey = null;
                 this._showPlaceholder('Need a newer version', 'Could not resolve the newer dashboard source.');
                 return;
             }
@@ -502,18 +502,31 @@ define([
         _pickVersions: function(data, c) {
             var rows = data.rows, colIdx = data.colIdx;
             var dF = colIdx[c.dataField], rF = colIdx[c.roleField];
-            var baselineXml = '', targetXml = '';
+            var tF = colIdx['_time'];  // Splunk standard time field; may be absent
+            var baselineXml = '', targetXml = '', baselineTime = '', targetTime = '';
             if (rF !== undefined) {
                 for (var i = 0; i < rows.length; i++) {
                     var role = String(rows[i][rF] == null ? '' : rows[i][rF]).trim().toLowerCase();
-                    if (role === String(c.baselineValue).trim().toLowerCase() && !baselineXml) baselineXml = rows[i][dF];
-                    if (role === String(c.targetValue).trim().toLowerCase() && !targetXml) targetXml = rows[i][dF];
+                    if (role === String(c.baselineValue).trim().toLowerCase() && !baselineXml) {
+                        baselineXml = rows[i][dF];
+                        if (tF !== undefined) baselineTime = String(rows[i][tF] == null ? '' : rows[i][tF]);
+                    }
+                    if (role === String(c.targetValue).trim().toLowerCase() && !targetXml) {
+                        targetXml = rows[i][dF];
+                        if (tF !== undefined) targetTime = String(rows[i][tF] == null ? '' : rows[i][tF]);
+                    }
                 }
             }
             // Fallback: row 0 = target (newest), row 1 = baseline.
-            if (!targetXml) targetXml = rows[0][dF];
-            if (!baselineXml && rows.length > 1) baselineXml = rows[1][dF];
-            return { baselineXml: baselineXml, targetXml: targetXml };
+            if (!targetXml) {
+                targetXml = rows[0][dF];
+                if (tF !== undefined) targetTime = String(rows[0][tF] == null ? '' : rows[0][tF]);
+            }
+            if (!baselineXml && rows.length > 1) {
+                baselineXml = rows[1][dF];
+                if (tF !== undefined) baselineTime = String(rows[1][tF] == null ? '' : rows[1][tF]);
+            }
+            return { baselineXml: baselineXml, targetXml: targetXml, baselineTime: baselineTime, targetTime: targetTime };
         },
 
         // ── render ──────────────────────────────────────────────
@@ -694,9 +707,9 @@ define([
 
             if (split) {
                 var row = el('div', 'dpd-split');
-                row.appendChild(this._buildColumn('Older version', '',
+                row.appendChild(this._buildColumn('Older version', this._pending.pick.baselineTime,
                     this._baselineModel, this._baseKindById, this._baseChangeById));
-                row.appendChild(this._buildColumn('Newer version', '',
+                row.appendChild(this._buildColumn('Newer version', this._pending.pick.targetTime,
                     this._model, this._kindById, this._changeById));
                 this.board.appendChild(row);
             } else {
@@ -755,7 +768,12 @@ define([
             var launchKey = this._lastRenderKey;
 
             import(/* webpackChunkName: "live_render" */ './live_render').then(function(lrModule) {
-                // Bail if the viz has been re-rendered or destroyed since we fired the import.
+                // Bail if the viz has been removed (panel torn down) or re-rendered
+                // since we fired the import. _removed must be checked first because
+                // remove() nulls _lastRenderKey to null and launchKey is also null on
+                // the toolbar-toggle path — null !== null is false, so the old guard
+                // alone cannot catch the post-remove case (V1 fix).
+                if (self._removed) return;
                 if (self._lastRenderKey !== launchKey || !self.board.contains(host)) return;
 
                 var lr = (lrModule && lrModule.__esModule) ? (lrModule.default || lrModule) : lrModule;
@@ -806,6 +824,8 @@ define([
                 }
 
             }).catch(function(err) {
+                // Bail if the viz has been removed while the chunk was loading (V1 fix).
+                if (self._removed) return;
                 // Chunk fetch failed (network error, 404, etc.) — revert the
                 // Live render toggle and show a useful message.
                 if (self._ui) self._ui.live = false;
@@ -962,8 +982,8 @@ define([
         reflow: function() { this._reflowBoard(); this._reflowLive(); },
 
         remove: function() {
+            this._removed = true;
             this._unmountLive();
-            this._lastGoodData = null;
             this._lastRenderKey = null;
             this._targetDef = null;
             this._model = null;

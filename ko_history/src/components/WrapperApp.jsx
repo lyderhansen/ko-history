@@ -6,7 +6,7 @@ import { versionSearchTerms } from '../util/versionSearchTerms';
 import { toLines, lineDiff } from '../util/diff';
 import { analyze, combineLevel } from '../util/heaviness';
 import { parseSchematic, diffSchematic } from '../util/schematic';
-import { startHighlightPoll } from '../util/highlightInject';
+import { startHighlightPoll, clearHighlights } from '../util/highlightInject';
 import SourceView from './SourceView';
 // VersionTimeline is intentionally unwired (kept in the repo for future use).
 
@@ -127,7 +127,7 @@ function prettyKoType(fields) {
 // wildcards so nothing material is silently dropped. Tabled in SPL → returned as
 // row-object keys (dotted names like "action.email.to" survive intact).
 const SS_FIELDS = (
-    'search disabled is_scheduled cron_schedule schedule_window schedule_priority ' +
+    'search disabled is_scheduled cron_schedule realtime_schedule schedule_window schedule_priority ' +
     'dispatch.earliest_time dispatch.latest_time description alert_type ' +
     'alert_comparator alert_threshold alert_condition actions owner sharing ' +
     'action.* alert.*'
@@ -148,7 +148,7 @@ function versionsSplSavedSearch(title, appName) {
         `| eval method=coalesce(method,if(isnotnull('search'),"updated","—")) ` +
         `| eval epoch=_time ` +
         `| sort - epoch | head 200 ` +
-        `| table epoch method ${SS_FIELDS}`
+        `| table epoch method user ${SS_FIELDS}`
     );
 }
 
@@ -172,14 +172,14 @@ function extractSavedSearch(row) {
 // scopes to the class's sources (falls back to "*", title-scoped).
 function versionsSplGeneric(title, appName, sourceList) {
     return (
-        `index=${splQuote(KO_INDEX)} source IN (${sourceList}) ` + versionSearchTerms(title) + ' ' +
+        `index=${splQuote(KO_INDEX)} source IN (${sourceList}) NOT source="ko_usage" ` + versionSearchTerms(title) + ' ' +
         `| eval title=coalesce(title,file), appName=coalesce(appName,app) ` +
         `| search title=${splQuote(title)} ` +
         `| where appName=${splQuote(appName)} OR isnull(appName) ` +
         `| eval method=coalesce(method,"updated") ` +
         `| eval epoch=_time ` +
         `| sort - epoch | head 200 ` +
-        `| table epoch method type definition args iseval search regex value eval template ` +
+        `| table epoch method user type definition args iseval search regex value eval template ` +
         `description priority tags color stanza attribute extract_kind ` +
         `filename lookup_type collection external_cmd fields_list case_sensitive_match disabled owner sharing`
     );
@@ -221,7 +221,7 @@ function versionsSpl(title, appName) {
         // dropdown shows it instead of an empty dash; emit an explicit epoch since
         // JSON renders _time as an ISO string that won't compare to the epoch token.
         `| rex field=_raw "(?<m_upd>updated)" | eval method=coalesce(method,m_upd) ` +
-        `| eval epoch=_time | table epoch method _raw | sort - epoch | head 200`
+        `| eval epoch=_time | table epoch method user _raw | sort - epoch | head 200`
     );
 }
 
@@ -781,6 +781,7 @@ export default function WrapperApp() {
     React.useEffect(() => {
         if (!sel) return undefined;
         let cancelled = false;
+        const controller = new AbortController();
         setLoadingVersions(true);
         setVersionsErr('');
         setVersions([]);
@@ -796,22 +797,22 @@ export default function WrapperApp() {
             : isGenericC
                 ? versionsSplGeneric(sel.title, sel.appName, sourceListForClass(koClass))
                 : versionsSpl(sel.title, sel.appName);
-        oneshot(spl)
+        oneshot(spl, { signal: controller.signal })
             .then((rows) => {
                 if (cancelled) return;
                 let processed;
                 if (isSavedC) {
                     processed = rows.map((r) => {
                         const e = extractSavedSearch(r);
-                        return { _time: r.epoch, method: r.method, ss: true, fields: e.fields, isConfig: e.isConfig };
+                        return { _time: r.epoch, method: r.method + (r.user ? ' by ' + r.user : ''), ss: true, fields: e.fields, isConfig: e.isConfig };
                     });
                 } else if (isGenericC) {
                     processed = rows.map((r) => {
                         const e = extractGeneric(r);
-                        return { _time: r.epoch, method: r.method, gen: true, koClass: koClass, fields: e.fields, isConfig: e.isConfig };
+                        return { _time: r.epoch, method: r.method + (r.user ? ' by ' + r.user : ''), gen: true, koClass: koClass, fields: e.fields, isConfig: e.isConfig };
                     });
                 } else {
-                    const mapped = rows.map((r) => ({ _time: r.epoch, method: r.method, xml: extractXml(r._raw) }));
+                    const mapped = rows.map((r) => ({ _time: r.epoch, method: r.method + (r.user ? ' by ' + r.user : ''), xml: extractXml(r._raw) }));
                     processed = mapped.filter((r) => r.xml && r.xml.charAt(0) === '<');
                     if (processed.length === 0 && mapped.length > 0) {
                         // Rows were returned but extractXml found no renderable XML in any of them
@@ -828,12 +829,14 @@ export default function WrapperApp() {
                 setLoadingVersions(false);
             })
             .catch((e) => {
+                // AbortError from cancelled cleanup is intentionally swallowed here.
                 if (cancelled) return;
                 setVersionsErr(String((e && e.message) || e));
                 setLoadingVersions(false);
             });
         return () => {
             cancelled = true;
+            controller.abort();
         };
     }, [sel, versionsFetchKey]);
 
@@ -910,7 +913,7 @@ export default function WrapperApp() {
             token.cancelled = true;
             clearTimeout(tid);
         };
-    }, [restore, restoreApp, restoreName, isSaved]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [restore, restoreApp, restoreName, isSaved, isGeneric]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // App options for the restore target <select>: the full installed-app list,
     // guaranteeing the origin app and the current value are present (so a real
@@ -1670,7 +1673,7 @@ function CompareColumn({ accent, tag, label, url, run, onRun, onRestore, heavy, 
         if (!run || !overlays || !nShown) {
             // clear any stale boxes when overlays/kinds turn the set empty
             const el0 = ifRef.current;
-            if (el0) { try { startHighlightPoll(el0, [], { canvasW, canvasH })(); } catch (e) { /* */ } }
+            if (el0) { clearHighlights(el0); }
             return undefined;
         }
         const el = ifRef.current;
@@ -1767,6 +1770,8 @@ function BlendView({ baseUrl, targetUrl, baseLabel, targetLabel }) {
         let cancelled = false;
         let prevH = null;
         let stable = 0;
+        let ticks = 0;
+        const MAX_TICKS = 60;
         let iv = null;
         const measure = () => {
             if (cancelled) return;
@@ -1782,22 +1787,23 @@ function BlendView({ baseUrl, targetUrl, baseLabel, targetLabel }) {
             if (!cancelled) {
                 setContentH(h);
                 // Stop the poll once height is stable for 2 consecutive interval
-                // ticks; dashboards finish rendering within seconds of loading.
+                // ticks, or after a hard cap of ~60 ticks (mirrors highlightInject's
+                // maxTries pattern). The load re-arm resets the tick counter so a
+                // legitimately-still-loading dashboard gets a fresh 60-tick window.
                 if (iv !== null) {
-                    if (h !== null && h === prevH) {
-                        stable += 1;
-                        if (stable >= 2) { clearInterval(iv); iv = null; }
-                    } else {
-                        stable = 0;
-                    }
+                    if (h !== null && h === prevH) { stable += 1; } else { stable = 0; }
+                    if (stable >= 2 || ticks >= MAX_TICKS) { clearInterval(iv); iv = null; }
                 }
                 prevH = h;
             }
         };
+        const tick = () => { ticks++; measure(); };
         const onLoad = () => {
             // Re-arm after each iframe load: heights will change as panels render.
+            // Reset both counters so the fresh load gets a full 60-tick window.
             stable = 0;
-            if (iv === null && !cancelled) { iv = setInterval(measure, 2000); }
+            ticks = 0;
+            if (iv === null && !cancelled) { iv = setInterval(tick, 2000); }
             measure();
         };
         const baseEl = baseRef.current;
@@ -1805,7 +1811,7 @@ function BlendView({ baseUrl, targetUrl, baseLabel, targetLabel }) {
         if (baseEl) baseEl.addEventListener('load', onLoad);
         if (tgtEl)  tgtEl.addEventListener('load', onLoad);
         measure(); // immediate attempt if already loaded
-        iv = setInterval(measure, 2000);
+        iv = setInterval(tick, 2000);
         return () => {
             cancelled = true;
             if (iv !== null) clearInterval(iv);

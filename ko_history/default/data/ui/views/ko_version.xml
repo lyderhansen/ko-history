@@ -51,14 +51,14 @@
           <unset token="link_title">$row.title$</unset>
           <unset token="showDrilldown"></unset>
           <set token="data_type">dashboards</set>
-          <set token="table_view">_time label title owner appName latestSharing latestMethod history</set>
+          <set token="table_view">_time label title owner appName latestSharing latestMethod deletedBy history</set>
           <set token="koTypeFilter">views</set>
         </condition>
         <condition value="ko_reports_and_alerts_backup,ko_reports_and_alerts_delete_audit,ko_all_delete_audit">
           <unset token="link_title">$row.title$</unset>
           <unset token="showDrilldown"></unset>
           <set token="data_type">reports and alerts</set>
-          <set token="table_view">_time title type owner description actions email next_scheduled_time appName sharing latestMethod history alert.expires alert.severity</set>
+          <set token="table_view">_time title type owner description actions email next_scheduled_time appName sharing latestMethod deletedBy history alert.expires alert.severity</set>
           <set token="koTypeFilter">savedsearch</set>
         </condition>
         <condition>
@@ -80,8 +80,7 @@
       <title>Total amount of $data_type$ in app: $selectApp$</title>
       <single>
         <search base="baseSearch">
-          <query>| search source IN ($koType$)
-| search label="$searchForDashboard$" OR title="$searchForDashboard$" appName IN ($selectApp$) owner="$selectUser$" latestMethod="$DeletedToken$"
+          <query>| search label="$searchForDashboard$" OR title="$searchForDashboard$" appName IN ($selectApp$) owner="$selectUser$" latestMethod="$DeletedToken$"
 | stats c</query>
         </search>
         <option name="drilldown">none</option>
@@ -92,7 +91,7 @@
       <title>Count of active $data_type$ in Top 10 apps (unique titles)</title>
       <chart>
         <search base="baseSearch">
-          <query>| search source IN ($koType$) method!="delete" owner="$selectUser$" latestMethod="$DeletedToken$"
+          <query>| search method!="delete" owner="$selectUser$" latestMethod="$DeletedToken$"
 | stats dc(title) as dc by appName
 | sort - dc
 | head 10</query>
@@ -111,7 +110,7 @@
       <title>Deleted $data_type$</title>
       <single>
         <search base="baseSearch">
-          <query>| search source IN ($koType$) owner="$selectUser$"
+          <query>| search owner="$selectUser$"
 | search latestMethod="DELETE"
 | stats c</query>
         </search>
@@ -137,8 +136,7 @@
       <table>
         <title>$data_type$ — click a row to inspect version history</title>
         <search base="baseSearch">
-          <query>| search source IN ($koType$)
-| fillnull value=n/a
+          <query>| fillnull value=n/a
 | search label="$searchForDashboard$" OR title="$searchForDashboard$" appName IN ($selectApp$) owner="$selectUser$" latestMethod="$DeletedToken$"
 | sort - _time
 ```Combining email to and cc into one field```
@@ -155,7 +153,8 @@
 | eval history=case(_n=1, _oldest, _n&lt;=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))
 | eval method=case(count_all=1 AND match(method,"updated"), replace(method,"updated","created"),1==1, method)
 | eval latestMethod=case(count_all=1 AND match(latestMethod,"updated"), replace(latestMethod,"updated","created"),1==1, latestMethod)
-| fields - count_all _n _oldest _counter</query>
+| fields - count_all _n _oldest _counter
+| rename deletedBy as "By"</query>
         </search>
         <option name="count">25</option>
         <option name="drilldown">cell</option>
@@ -287,7 +286,7 @@
       <table>
         <search id="baseSearch">
           <query>index="ko_history" source IN ($koType$) NOT source="ko_usage"
-| eval type=coalesce(type, case(match(source,"views_delete_audit"),"views",match(source,"reports_and_alerts_delete_audit"),"savedsearch",match(source,"macros_delete_audit"),"macro",match(source,"eventtypes_delete_audit"),"eventtype",match(source,"fieldextractions_delete_audit"),"fieldextraction",match(source,"lookups_delete_audit"),"lookup",match(source,"tags_delete_audit"),"tag",1==1,type))
+| eval type=coalesce(type, case(match(source,"views_delete_audit"),"views",match(source,"reports_and_alerts_delete_audit"),"savedsearch",match(source,"macros_delete_audit"),"macro",match(source,"eventtypes_delete_audit"),"eventtype",match(source,"fieldextractions_delete_audit"),"fieldextraction",match(source,"lookups_delete_audit"),"lookup",match(source,"tags_delete_audit"),"tag"))
 | search type="$koTypeFilter$"
 | rex field=uri "\/en-\w\w\/splunkd\/__raw\/servicesNS\/.*?\/(?&lt;appName&gt;.+?)\/"
 | rex field=uri "/servicesNS/.*?\/(?&lt;appName&gt;.*?)/data/ui/views/"
@@ -297,12 +296,12 @@
 | rex mode=sed field=file "s/%3A/:/g"
 | rex mode=sed field=file "s/%21/!/g"
 | eval title = coalesce(title,file,dashboard), appName=coalesce(appName,app)
-| table now _time updated title config_type type sharing owner method source description appName actions action.email.message.alert action.email.to action.email.cc alert.expires alert.severity next_scheduled_time search data label userName
+| table _time updated title type sharing owner user method source description appName actions action.email.message.alert action.email.to action.email.cc alert.expires alert.severity next_scheduled_time search data label
 | eval time=strftime(_time,"%F %T"),
-       history=time." - ".method
-| stats latest(_time) as _time latest(method) as latestMethod latest(sharing) as latestSharing values(*) as * by title appName
+       history=time." - ".method.if(isnotnull(user)," by ".user,"")
+| stats latest(_time) as _time latest(method) as latestMethod latest(sharing) as latestSharing latest(user) as deletedBy values(*) as * by title appName
 | search title=*
-| table _time updated title config_type type sharing latestSharing owner method latestMethod history source description appName actions action.email.message.alert action.email.to action.email.cc alert.expires alert.severity next_scheduled_time search data label userName</query>
+| table _time updated title type sharing latestSharing owner method latestMethod deletedBy history source description appName actions action.email.message.alert action.email.to action.email.cc alert.expires alert.severity next_scheduled_time search data label</query>
           <earliest>$timePicker.earliest$</earliest>
           <latest>$timePicker.latest$</latest>
         </search>

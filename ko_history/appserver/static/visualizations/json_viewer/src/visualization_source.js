@@ -93,7 +93,7 @@ define([
         if (det.kind === 'raw') {
             var rawStr = String(raw == null ? '' : raw);
             lines = rawStr.split('\n').map(function (ln) {
-                return { indent: 0, html: '<span class="kojv__s">' + esc(ln) + '</span>', fold: null, parent: null };
+                return { indent: 0, html: '<span class="kojv__s">' + esc(ln) + '</span>', fold: null };
             });
             pretty = rawStr;
             footMeta = { ok: det.label === 'Unparsed' ? 'unparsed' : 'raw text', depth: 0 };
@@ -155,7 +155,6 @@ define([
             this.el.classList.add('ko-json-viewer-viz');
             this.root = el('div', 'kojv');
             this.el.appendChild(this.root);
-            this._lastGood = null;
             this._lastRenderKey = null;
         },
 
@@ -165,13 +164,11 @@ define([
 
         formatData: function (data) {
             if (!data || !data.rows || data.rows.length === 0) {
-                return this._lastGood || { empty: true, colIdx: {}, rows: [] };
+                return { empty: true, colIdx: {}, rows: [] };
             }
             var fields = data.fields || [], colIdx = {};
             for (var i = 0; i < fields.length; i++) colIdx[fields[i].name] = i;
-            var r = { empty: false, colIdx: colIdx, rows: data.rows };
-            this._lastGood = r;
-            return r;
+            return { empty: false, colIdx: colIdx, rows: data.rows };
         },
 
         _resolveTheme: function (mode) {
@@ -185,7 +182,7 @@ define([
         },
 
         updateView: function (data, config) {
-            if (!data) { if (this._lastGood) data = this._lastGood; else return; }
+            if (!data) { return; }
             var ns = this.getPropertyNamespaceInfo().propertyNamespace;
             var g = function (k, d) { var v = config[ns + k]; return v === undefined ? d : v; };
             var c = {
@@ -214,18 +211,20 @@ define([
             };
 
             if (data.empty || !data.rows.length) {
+                this._resetModelFields();
+                this._lastRenderKey = null;
                 this.root.className = 'kojv kojv--' + c.theme +
                     (c.wrap ? ' kojv--wrap' : '') + (c.banding ? ' kojv--banded' : '');
                 this.root.innerHTML = '';
-                this._lastRenderKey = null;
                 this.root.appendChild(el('div', 'kojv__empty', 'Awaiting data — provide a result row with a source column.'));
                 return;
             }
             if (data.colIdx[c.dataField] === undefined) {
+                this._resetModelFields();
+                this._lastRenderKey = null;
                 this.root.className = 'kojv kojv--' + c.theme +
                     (c.wrap ? ' kojv--wrap' : '') + (c.banding ? ' kojv--banded' : '');
                 this.root.innerHTML = '';
-                this._lastRenderKey = null;
                 this.root.appendChild(el('div', 'kojv__empty',
                     'Source field "' + c.dataField + '" not found. Columns: ' + Object.keys(data.colIdx).join(', ')));
                 return;
@@ -275,16 +274,22 @@ define([
             this._lastRenderKey = renderKey;
 
             // ── reset ALL mode fields before rebuild to release detached DOM ──
-            this._allLines = null;
-            this._foldGroups = null;
-            this._diffOps = null;
-            this._diffBody = null;
+            this._resetModelFields();
 
             if (wantDiff && baseRow) {
                 this._renderDiff(bRaw, tRaw, title, app, c);
             } else {
                 this._render(tRaw, title, app, c);
             }
+        },
+
+        // Release all mode-specific fields so detached DOM generations are unpinned.
+        // Called before every full rebuild AND in every placeholder branch (V2 fix).
+        _resetModelFields: function () {
+            this._allLines = null;
+            this._foldGroups = null;
+            this._diffOps = null;
+            this._diffBody = null;
         },
 
         _render: function (raw, title, app, c) {
@@ -636,11 +641,7 @@ define([
         reflow: function () {},
 
         remove: function() {
-            this._allLines = null;
-            this._foldGroups = null;
-            this._diffOps = null;
-            this._diffBody = null;
-            this._lastGood = null;
+            this._resetModelFields();
             this._lastRenderKey = null;
             if (SplunkVisualizationBase.prototype.remove) {
                 SplunkVisualizationBase.prototype.remove.apply(this, arguments);

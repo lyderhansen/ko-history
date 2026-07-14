@@ -13,9 +13,6 @@
         "ko_class": {
           "value": "dashboard"
         },
-        "showDrilldown": {
-          "value": "0"
-        },
         "ko_realtype": {
           "value": ""
         },
@@ -116,7 +113,7 @@
       "type": "ds.search",
       "name": "Base - KO version history",
       "options": {
-        "query": "index=\"ko_history\" NOT source=\"ko_usage\"\n| eval type=coalesce(type, case(match(source,\"views_delete_audit\"),\"views\",match(source,\"reports_and_alerts_delete_audit\"),\"savedsearch\",match(source,\"macros_delete_audit\"),\"macro\",match(source,\"eventtypes_delete_audit\"),\"eventtype\",match(source,\"fieldextractions_delete_audit\"),\"fieldextraction\",match(source,\"lookups_delete_audit\"),\"lookup\",match(source,\"tags_delete_audit\"),\"tag\",1==1,type))\n| search type=\"$koType$\"\n| rex field=uri \"\\/en-\\w\\w\\/splunkd\\/__raw\\/servicesNS\\/.*?\\/(?<appName>.+?)\\/\"\n| rex field=uri \"/servicesNS/.*?\\/(?<appName>.*?)/data/ui/views/\"\n| rex field=uri \"/servicesNS/[^/]+/(?<app_uri>[^/]+)/\"\n| rex \"(?<method>updated)\"\n| rex mode=sed field=file \"s/%20/ /g\"\n| rex mode=sed field=file \"s/%3A/:/g\"\n| rex mode=sed field=file \"s/%21/!/g\"\n| rex mode=sed field=file \"s/%28/(/g\"\n| rex mode=sed field=file \"s/%29/)/g\"\n| eval title = coalesce(title,file,dashboard), appName=coalesce(appName,app,app_uri)\n| rex mode=sed field=title \"s/%3A/:/g\"\n| eval ko_format=if(isnotnull(data) AND match(data,\"<definition\"),\"Dashboard Studio\",if(isnotnull(data),\"Simple XML\",\"n/a\"))\n| fields - data\n| table now _time updated title config_type type sharing owner method source description appName ko_format actions action.email.message.alert action.email.to action.email.cc alert.expires alert.severity next_scheduled_time is_scheduled cron_schedule disabled alert_type search label userName\n| eval time=strftime(_time,\"%F %T\"), history=time.\" - \".method\n| stats latest(_time) as _time latest(method) as latestMethod latest(sharing) as latestSharing latest(ko_format) as ko_format values(*) as * by title appName\n| search title=*\n| table _time updated title config_type type sharing latestSharing owner method latestMethod history ko_format source description appName actions action.email.message.alert action.email.to action.email.cc alert.expires alert.severity next_scheduled_time is_scheduled cron_schedule disabled alert_type search label userName",
+        "query": "index=\"ko_history\" NOT source=\"ko_usage\"\n| eval type=coalesce(type, case(match(source,\"views_delete_audit\"),\"views\",match(source,\"reports_and_alerts_delete_audit\"),\"savedsearch\",match(source,\"macros_delete_audit\"),\"macro\",match(source,\"eventtypes_delete_audit\"),\"eventtype\",match(source,\"fieldextractions_delete_audit\"),\"fieldextraction\",match(source,\"lookups_delete_audit\"),\"lookup\",match(source,\"tags_delete_audit\"),\"tag\"))\n| search type=\"$koType$\"\n| rex field=uri \"\\/en-\\w\\w\\/splunkd\\/__raw\\/servicesNS\\/.*?\\/(?<appName>.+?)\\/\"\n| rex field=uri \"/servicesNS/.*?\\/(?<appName>.*?)/data/ui/views/\"\n| rex field=uri \"/servicesNS/[^/]+/(?<app_uri>[^/]+)/\"\n| rex \"(?<method>updated)\"\n| rex mode=sed field=file \"s/%20/ /g\"\n| rex mode=sed field=file \"s/%3A/:/g\"\n| rex mode=sed field=file \"s/%21/!/g\"\n| rex mode=sed field=file \"s/%28/(/g\"\n| rex mode=sed field=file \"s/%29/)/g\"\n| eval title = coalesce(title,file,dashboard), appName=coalesce(appName,app,app_uri)\n| rex mode=sed field=title \"s/%3A/:/g\"\n| eval ko_format=if(isnotnull(data) AND match(data,\"<definition\"),\"Dashboard Studio\",if(isnotnull(data),\"Simple XML\",\"n/a\"))\n| fields - data\n| table _time updated title type sharing owner user method source description appName ko_format actions action.email.message.alert action.email.to action.email.cc alert.expires alert.severity next_scheduled_time is_scheduled cron_schedule disabled alert_type search label\n| eval time=strftime(_time,\"%F %T\"), history=time.\" - \".method.if(isnotnull(user),\" by \".user,\"\")\n| stats latest(_time) as _time latest(method) as latestMethod latest(sharing) as latestSharing latest(ko_format) as ko_format latest(user) as deletedBy values(*) as * by title appName\n| search title=*\n| table _time updated title type sharing latestSharing owner method latestMethod deletedBy history ko_format source description appName actions action.email.message.alert action.email.to action.email.cc alert.expires alert.severity next_scheduled_time is_scheduled cron_schedule disabled alert_type search label",
         "queryParameters": {
           "earliest": "$tp.earliest$",
           "latest": "$tp.latest$"
@@ -195,37 +192,39 @@
         "query": "| search appName=\"$selectApp$\" owner=\"$selectUser$\"\n| search latestMethod=\"MOVE\"\n| stats c"
       }
     },
-    "ds_versions_kpi": {
+    "ds_kpi_base": {
       "type": "ds.search",
-      "name": "KPI - versions captured",
+      "name": "KPI base - backups per KO",
       "options": {
-        "query": "index=\"ko_history\" NOT source=\"ko_usage\"\n| eval type=coalesce(type, case(match(source,\"views_delete_audit\"),\"views\",match(source,\"reports_and_alerts_delete_audit\"),\"savedsearch\",match(source,\"macros_delete_audit\"),\"macro\",match(source,\"eventtypes_delete_audit\"),\"eventtype\",match(source,\"fieldextractions_delete_audit\"),\"fieldextraction\",match(source,\"lookups_delete_audit\"),\"lookup\",match(source,\"tags_delete_audit\"),\"tag\",1==1,type))\n| search type=\"$koType$\"\n| search NOT source=\"*delete_audit*\"\n| eval title=coalesce(title,file), appName=coalesce(appName,app)\n| search appName=\"$selectApp$\" owner=\"$selectUser$\"\n| stats c",
+        "query": "index=\"ko_history\" NOT source=\"ko_usage\"\n| eval type=coalesce(type, case(match(source,\"views_delete_audit\"),\"views\",match(source,\"reports_and_alerts_delete_audit\"),\"savedsearch\",match(source,\"macros_delete_audit\"),\"macro\",match(source,\"eventtypes_delete_audit\"),\"eventtype\",match(source,\"fieldextractions_delete_audit\"),\"fieldextraction\",match(source,\"lookups_delete_audit\"),\"lookup\",match(source,\"tags_delete_audit\"),\"tag\"))\n| search type=\"$koType$\"\n| search NOT source=\"*delete_audit*\"\n| eval title=coalesce(title,file), appName=coalesce(appName,app)\n| search appName=\"$selectApp$\" owner=\"$selectUser$\"\n| stats count as v by title appName",
         "queryParameters": {
           "earliest": "$tp.earliest$",
           "latest": "$tp.latest$"
         }
+      }
+    },
+    "ds_versions_kpi": {
+      "type": "ds.chain",
+      "name": "KPI - versions captured",
+      "options": {
+        "extend": "ds_kpi_base",
+        "query": "| stats sum(v) as c"
       }
     },
     "ds_withhistory": {
-      "type": "ds.search",
+      "type": "ds.chain",
       "name": "KPI - KOs with history",
       "options": {
-        "query": "index=\"ko_history\" NOT source=\"ko_usage\"\n| eval type=coalesce(type, case(match(source,\"views_delete_audit\"),\"views\",match(source,\"reports_and_alerts_delete_audit\"),\"savedsearch\",match(source,\"macros_delete_audit\"),\"macro\",match(source,\"eventtypes_delete_audit\"),\"eventtype\",match(source,\"fieldextractions_delete_audit\"),\"fieldextraction\",match(source,\"lookups_delete_audit\"),\"lookup\",match(source,\"tags_delete_audit\"),\"tag\",1==1,type))\n| search type=\"$koType$\"\n| search NOT source=\"*delete_audit*\"\n| eval title=coalesce(title,file), appName=coalesce(appName,app)\n| search appName=\"$selectApp$\" owner=\"$selectUser$\"\n| stats count as v by title appName\n| where v>1\n| stats c",
-        "queryParameters": {
-          "earliest": "$tp.earliest$",
-          "latest": "$tp.latest$"
-        }
+        "extend": "ds_kpi_base",
+        "query": "| where v>1\n| stats count"
       }
     },
     "ds_mostchanged": {
-      "type": "ds.search",
+      "type": "ds.chain",
       "name": "KPI - most-changed KOs",
       "options": {
-        "query": "index=\"ko_history\" NOT source=\"ko_usage\"\n| eval type=coalesce(type, case(match(source,\"views_delete_audit\"),\"views\",match(source,\"reports_and_alerts_delete_audit\"),\"savedsearch\",match(source,\"macros_delete_audit\"),\"macro\",match(source,\"eventtypes_delete_audit\"),\"eventtype\",match(source,\"fieldextractions_delete_audit\"),\"fieldextraction\",match(source,\"lookups_delete_audit\"),\"lookup\",match(source,\"tags_delete_audit\"),\"tag\",1==1,type))\n| search type=\"$koType$\"\n| search NOT source=\"*delete_audit*\"\n| eval title=coalesce(title,file), appName=coalesce(appName,app)\n| search appName=\"$selectApp$\" owner=\"$selectUser$\"\n| stats count as Versions by title appName\n| sort - Versions\n| head 8\n| rename title as KO appName as App\n| table KO App Versions",
-        "queryParameters": {
-          "earliest": "$tp.earliest$",
-          "latest": "$tp.latest$"
-        }
+        "extend": "ds_kpi_base",
+        "query": "| sort - v\n| head 8\n| rename v as Versions title as KO appName as App\n| table KO App Versions"
       }
     },
     "ds_table": {
@@ -233,7 +232,7 @@
       "name": "Main - dashboards table",
       "options": {
         "extend": "ds_base",
-        "query": "| search label=\"$searchForDashboard$\" OR title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval type=case(type=\"views\" AND ko_format=\"Dashboard Studio\",\"Dashboard (Studio)\",type=\"views\" AND ko_format=\"Simple XML\",\"Dashboard (Simple XML)\",type=\"views\",\"Dashboard\",type=\"savedsearch\",\"Saved search\",type=\"macro\",\"Macro\",type=\"eventtype\",\"Event type\",type=\"fieldextraction\",\"Field extraction\",type=\"lookup\",\"Lookup\",type=\"tag\",\"Tag\",isnotnull(type),type,1==1,\"Dashboard\")\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title type owner appName latestSharing latestMethod history _rtype _kclass"
+        "query": "| search label=\"$searchForDashboard$\" OR title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval type=case(type=\"views\" AND ko_format=\"Dashboard Studio\",\"Dashboard (Studio)\",type=\"views\" AND ko_format=\"Simple XML\",\"Dashboard (Simple XML)\",type=\"views\",\"Dashboard\",type=\"savedsearch\",\"Saved search\",type=\"macro\",\"Macro\",type=\"eventtype\",\"Event type\",type=\"fieldextraction\",\"Field extraction\",type=\"lookup\",\"Lookup\",type=\"tag\",\"Tag\",isnotnull(type),type,1==1,\"Dashboard\")\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title type owner appName latestSharing latestMethod deletedBy history _rtype _kclass\n| rename deletedBy as \"By\""
       }
     },
     "ds_table_reports": {
@@ -241,7 +240,7 @@
       "name": "Main - reports and alerts table",
       "options": {
         "extend": "ds_base",
-        "query": "| search title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval scheduled=case(is_scheduled=\"1\",\"Scheduled\",is_scheduled=\"0\",\"Manual\",1==1,\"n/a\")\n| eval kind=case(isnotnull(alert_type) AND alert_type!=\"always\" AND alert_type!=\"n/a\",\"Alert\",scheduled=\"Scheduled\",\"Scheduled report\",1==1,\"Saved search\")\n| eval severity='alert.severity'\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title owner appName latestSharing kind scheduled cron_schedule severity actions latestMethod history _rtype _kclass"
+        "query": "| search title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval scheduled=case(is_scheduled=\"1\",\"Scheduled\",is_scheduled=\"0\",\"Manual\",1==1,\"n/a\")\n| eval kind=case(isnotnull(alert_type) AND alert_type!=\"always\" AND alert_type!=\"n/a\",\"Alert\",scheduled=\"Scheduled\",\"Scheduled report\",1==1,\"Saved search\")\n| eval severity='alert.severity'\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title owner appName latestSharing kind scheduled cron_schedule severity actions latestMethod deletedBy history _rtype _kclass\n| rename deletedBy as \"By\""
       }
     },
     "ds_table_macros": {
@@ -249,7 +248,7 @@
       "name": "Main - macros table",
       "options": {
         "extend": "ds_base",
-        "query": "| search title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title owner appName latestSharing latestMethod history _rtype _kclass"
+        "query": "| search title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title owner appName latestSharing latestMethod deletedBy history _rtype _kclass\n| rename deletedBy as \"By\""
       }
     },
     "ds_table_eventtypes": {
@@ -257,7 +256,7 @@
       "name": "Main - event types table",
       "options": {
         "extend": "ds_base",
-        "query": "| search title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title owner appName latestSharing latestMethod history _rtype _kclass"
+        "query": "| search title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title owner appName latestSharing latestMethod deletedBy history _rtype _kclass\n| rename deletedBy as \"By\""
       }
     },
     "ds_table_fieldextractions": {
@@ -265,7 +264,7 @@
       "name": "Main - field extractions table",
       "options": {
         "extend": "ds_base",
-        "query": "| search title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title owner appName latestSharing latestMethod history _rtype _kclass"
+        "query": "| search title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title owner appName latestSharing latestMethod deletedBy history _rtype _kclass\n| rename deletedBy as \"By\""
       }
     },
     "ds_table_lookups": {
@@ -273,7 +272,7 @@
       "name": "Main - lookups table",
       "options": {
         "extend": "ds_base",
-        "query": "| search title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title owner appName latestSharing latestMethod history _rtype _kclass"
+        "query": "| search title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title owner appName latestSharing latestMethod deletedBy history _rtype _kclass\n| rename deletedBy as \"By\""
       }
     },
     "ds_table_tags": {
@@ -281,7 +280,7 @@
       "name": "Main - tags table",
       "options": {
         "extend": "ds_base",
-        "query": "| search title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title owner appName latestSharing latestMethod history _rtype _kclass"
+        "query": "| search title=\"$searchForDashboard$\" appName=\"$selectApp$\" owner=\"$selectUser$\" latestMethod=\"$DeletedToken$\"\n| fillnull value=n/a\n| sort - _time\n| eventstats c(history) as count_all by title appName\n| eval _n=mvcount(history)\n| eval _oldest=mvindex(history,_n-1)\n| eval _oldest=if(match(_oldest,\"- updated\"),replace(_oldest,\"updated\",\"created\"),_oldest)\n| eval _counter=if(_n>5,(_n-5).\" more updates\",null())\n| eval history=case(_n=1, _oldest, _n<=5, mvappend(mvindex(history,0,_n-2),_oldest), 1==1, mvappend(mvindex(history,0,3),_counter,_oldest))\n| eval latestMethod=case(count_all=1 AND match(latestMethod,\"updated\"), replace(latestMethod,\"updated\",\"created\"),1==1, latestMethod)\n| fields - count_all _n _oldest _counter\n| eval _rtype=coalesce(type,\"views\")\n| eval _kclass=if(_rtype=\"views\",\"dashboard\",_rtype)\n| eval last_updated=strftime(_time,\"%F %T\")\n| fields - _time\n| table last_updated title owner appName latestSharing latestMethod deletedBy history _rtype _kclass\n| rename deletedBy as \"By\""
       }
     },
     "ds_dataview": {
@@ -329,7 +328,7 @@
       "type": "ds.search",
       "name": "Drilldown - KO action timeline",
       "options": {
-        "query": "index=\"ko_history\" NOT source=\"ko_usage\"\n| eval type=coalesce(type, case(match(source,\"views_delete_audit\"),\"views\",match(source,\"reports_and_alerts_delete_audit\"),\"savedsearch\",match(source,\"macros_delete_audit\"),\"macro\",match(source,\"eventtypes_delete_audit\"),\"eventtype\",match(source,\"fieldextractions_delete_audit\"),\"fieldextraction\",match(source,\"lookups_delete_audit\"),\"lookup\",match(source,\"tags_delete_audit\"),\"tag\",1==1,type))\n| rex field=uri \"/servicesNS/[^/]+/(?<app_uri>[^/]+)/\"\n| rex mode=sed field=file \"s/%20/ /g\"\n| rex mode=sed field=file \"s/%3A/:/g\"\n| rex mode=sed field=file \"s/%21/!/g\"\n| rex mode=sed field=file \"s/%28/(/g\"\n| rex mode=sed field=file \"s/%29/)/g\"\n| eval title=coalesce(title,file,dashboard), appName=coalesce(appName,app,app_uri)\n| rex mode=sed field=title \"s/%3A/:/g\"\n| where title=\"$drilldownTitle$\" AND type=\"$ko_realtype$\" AND appName=\"$link_app$\"\n| eval action=case(match(method,\"(?i)delete\"),\"deleted\",match(method,\"(?i)move\"),\"moved\",1==1,\"updated\")\n| sort 0 _time\n| streamstats count as _n\n| eval action=if(_n=1 AND action=\"updated\",\"created\",action)\n| timechart count by action\n",
+        "query": "index=\"ko_history\" NOT source=\"ko_usage\"\n| eval type=coalesce(type, case(match(source,\"views_delete_audit\"),\"views\",match(source,\"reports_and_alerts_delete_audit\"),\"savedsearch\",match(source,\"macros_delete_audit\"),\"macro\",match(source,\"eventtypes_delete_audit\"),\"eventtype\",match(source,\"fieldextractions_delete_audit\"),\"fieldextraction\",match(source,\"lookups_delete_audit\"),\"lookup\",match(source,\"tags_delete_audit\"),\"tag\"))\n| rex field=uri \"/servicesNS/[^/]+/(?<app_uri>[^/]+)/\"\n| rex mode=sed field=file \"s/%20/ /g\"\n| rex mode=sed field=file \"s/%3A/:/g\"\n| rex mode=sed field=file \"s/%21/!/g\"\n| rex mode=sed field=file \"s/%28/(/g\"\n| rex mode=sed field=file \"s/%29/)/g\"\n| eval title=coalesce(title,file,dashboard), appName=coalesce(appName,app,app_uri)\n| rex mode=sed field=title \"s/%3A/:/g\"\n| where title=\"$drilldownTitle$\" AND type=\"$ko_realtype$\" AND appName=\"$link_app$\"\n| eval action=case(match(method,\"(?i)delete\"),\"deleted\",match(method,\"(?i)move\"),\"moved\",1==1,\"updated\")\n| sort 0 _time\n| streamstats count as _n\n| eval action=if(_n=1 AND action=\"updated\",\"created\",action)\n| timechart count by action\n",
         "queryParameters": {
           "earliest": "$tp.earliest$",
           "latest": "$tp.latest$"
@@ -348,7 +347,7 @@
       "type": "ds.search",
       "name": "Drilldown - generic KO record fields",
       "options": {
-        "query": "index=\"ko_history\" NOT source=\"ko_usage\" title=\"$drilldownTitle$\"\n| eval appName=coalesce(appName,app)\n| where type=\"$ko_realtype$\" AND appName=\"$link_app$\"\n| where NOT match(source,\"_delete_audit$\")\n| eval _sel=tonumber(\"$time$\")\n| where isnull(_sel) OR _time<=_sel\n| sort - _time\n| head 2\n| streamstats count as _rn\n| eval role=if(_rn=1,\"target\",\"baseline\")\n| table role title appName owner sharing type updated disabled is_scheduled is_visible definition args iseval priority tags color value extract_kind attribute stanza filename lookup_type collection external_cmd fields_list case_sensitive_match alert_type description search dispatch.earliest_time dispatch.latest_time cron_schedule next_scheduled_time schedule_window schedule_priority actions action.email.to action.email.cc action.email.bcc action.email.from action.email.subject action.email.message.alert action.email.sendresults action.email.inline action.script.filename action.webhook.param.url action.summary_index._name action.summary_index.* alert_comparator alert_threshold alert_condition alert.severity alert.expires alert.track alert.digest_mode alert.suppress alert.suppress.fields alert.suppress.period",
+        "query": "index=\"ko_history\" NOT source=\"ko_usage\" title=\"$drilldownTitle$\"\n| eval appName=coalesce(appName,app)\n| where type=\"$ko_realtype$\" AND appName=\"$link_app$\"\n| where NOT match(source,\"_delete_audit$\")\n| eval _sel=tonumber(\"$time$\")\n| where isnull(_sel) OR _time<=_sel\n| sort - _time\n| head 2\n| streamstats count as _rn\n| eval role=if(_rn=1,\"target\",\"baseline\")\n| table role title appName owner sharing type updated disabled is_scheduled is_visible definition args iseval priority tags color value extract_kind attribute stanza filename lookup_type collection external_cmd fields_list case_sensitive_match alert_type description search dispatch.earliest_time dispatch.latest_time cron_schedule realtime_schedule next_scheduled_time schedule_window schedule_priority actions action.email.to action.email.cc action.email.bcc action.email.from action.email.subject action.email.message.alert action.email.sendresults action.email.inline action.script.filename action.webhook.param.url action.summary_index._name action.summary_index.* alert_comparator alert_threshold alert_condition alert.severity alert.expires alert.track alert.digest_mode alert.suppress alert.suppress.fields alert.suppress.period",
         "queryParameters": {
           "earliest": "$tp.earliest$",
           "latest": "$tp.latest$"
@@ -721,10 +720,6 @@
               {
                 "token": "ko_class",
                 "key": "row._kclass.value"
-              },
-              {
-                "token": "showDrilldown",
-                "value": "1"
               }
             ]
           }
@@ -858,10 +853,6 @@
               {
                 "token": "ko_class",
                 "key": "row._kclass.value"
-              },
-              {
-                "token": "showDrilldown",
-                "value": "1"
               }
             ]
           }
@@ -995,10 +986,6 @@
               {
                 "token": "ko_class",
                 "key": "row._kclass.value"
-              },
-              {
-                "token": "showDrilldown",
-                "value": "1"
               }
             ]
           }
@@ -1132,10 +1119,6 @@
               {
                 "token": "ko_class",
                 "key": "row._kclass.value"
-              },
-              {
-                "token": "showDrilldown",
-                "value": "1"
               }
             ]
           }
@@ -1269,10 +1252,6 @@
               {
                 "token": "ko_class",
                 "key": "row._kclass.value"
-              },
-              {
-                "token": "showDrilldown",
-                "value": "1"
               }
             ]
           }
@@ -1406,10 +1385,6 @@
               {
                 "token": "ko_class",
                 "key": "row._kclass.value"
-              },
-              {
-                "token": "showDrilldown",
-                "value": "1"
               }
             ]
           }
@@ -1543,10 +1518,6 @@
               {
                 "token": "ko_class",
                 "key": "row._kclass.value"
-              },
-              {
-                "token": "showDrilldown",
-                "value": "1"
               }
             ]
           }

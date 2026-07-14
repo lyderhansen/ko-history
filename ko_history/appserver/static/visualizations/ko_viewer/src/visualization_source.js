@@ -146,7 +146,6 @@ define([
             this.el.classList.add('ko-viewer-viz');
             this.root = el('div', 'korc');
             this.el.appendChild(this.root);
-            this._lastGood = null;
             this._lastRenderKey = null;
         },
 
@@ -156,12 +155,9 @@ define([
 
         formatData: function (data) {
             if (!data || !data.rows || data.rows.length === 0) {
-                this._lastGood = null;
                 return { empty: true, fields: [], rows: [] };
             }
-            var r = { empty: false, fields: data.fields || [], rows: data.rows };
-            this._lastGood = r;
-            return r;
+            return { empty: false, fields: data.fields || [], rows: data.rows };
         },
 
         _resolveTheme: function (mode) {
@@ -233,8 +229,17 @@ define([
             // ── render-key short-circuit: skip full innerHTML teardown + LCS diff
             // on every updateView tick when nothing has changed (D4 fix). ──
             // Key covers: full row payloads + theme + every option that affects rendering.
-            var renderKey = hashString(latestRow ? latestRow.join('\x00') : '') + ':' +
-                hashString(prevRow ? prevRow.join('\x00') : '') + ':' +
+            // Hash per-cell and combine rather than join('\x00') to avoid allocating
+            // a large intermediate string per tick (V5 fix; mirrors dashboard_preview D8).
+            var _hRow = function (row) {
+                if (!row) return '';
+                var h = '';
+                for (var _ri = 0; _ri < row.length; _ri++) {
+                    h += hashString(row[_ri] == null ? '' : String(row[_ri])) + ',';
+                }
+                return h;
+            };
+            var renderKey = _hRow(latestRow) + ':' + _hRow(prevRow) + ':' +
                 c.theme + ':' + (c.showCopy ? 1 : 0) + ':' + c.mode + ':' +
                 c.titleField + ':' + c.appField + ':' + c.typeField + ':' +
                 c.roleField + ':' + c.latestValue + ':' + c.previousValue;
@@ -614,13 +619,6 @@ define([
             }
             wrap.appendChild(code);
             return wrap;
-        },
-
-        remove: function() {
-            this._lastGood = null;
-            if (SplunkVisualizationBase.prototype.remove) {
-                SplunkVisualizationBase.prototype.remove.apply(this, arguments);
-            }
         },
 
         _chip: function (name, f, cols) {

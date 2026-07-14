@@ -41,7 +41,7 @@
 .korc *,.korc *::before,.korc *::after{box-sizing:border-box}
 .korc__empty{color:var(--dim); padding:20px; font-style:italic}
 .korc__card{background:transparent}
-.korc__mono,.korc code,.korc__cv,.korc__code{font-family:"Splunk Platform Mono","SF Mono","Roboto Mono",Consolas,monospace}
+.korc code,.korc__cv,.korc__code{font-family:"Splunk Platform Mono","SF Mono","Roboto Mono",Consolas,monospace}
 
 /* header */
 .korc__head{display:flex; gap:16px; align-items:flex-start; justify-content:space-between; padding:4px 0 13px; border-bottom:1px solid var(--border)}

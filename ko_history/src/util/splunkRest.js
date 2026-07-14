@@ -133,7 +133,9 @@ export function oneshot(search, opts) {
         latest_time: latest,
         count: count,
     });
-    return fetch(url, { method: 'POST', credentials: 'same-origin', headers: headers(), body })
+    const fetchOpts = { method: 'POST', credentials: 'same-origin', headers: headers(), body };
+    if (o.signal) fetchOpts.signal = o.signal;
+    return fetch(url, fetchOpts)
         .then((r) => {
             if (!r.ok) return r.text().then((t) => Promise.reject(new Error('search HTTP ' + r.status + ' ' + t.slice(0, 200))));
             return r.json();

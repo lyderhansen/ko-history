@@ -155,9 +155,18 @@ function decorate(doc, node, ch) {
     node.appendChild(badge);
 }
 
-function clearHighlights(doc) {
+function clearHlDoc(doc) {
     const prev = doc.querySelectorAll('.koov-hl');
     for (let r = 0; r < prev.length; r++) prev[r].parentNode && prev[r].parentNode.removeChild(prev[r]);
+}
+
+// Remove any injected .koov-hl boxes from the iframe's document.
+// Safe to call even before the iframe has loaded (no-ops silently).
+export function clearHighlights(iframe) {
+    try {
+        const doc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
+        if (doc) clearHlDoc(doc);
+    } catch (e) { /* cross-origin or not-yet-loaded — ignore */ }
 }
 
 // Poll the iframe until its panels render, inject boxes, and keep them until
@@ -174,7 +183,7 @@ export function startHighlightPoll(iframe, changes, opts, onReport) {
         catch (e) { return { done: true, count: 0, found: 0, selector: 'cross-origin' }; }
         if (!doc || !doc.body) return { done: false, count: 0, found: 0, selector: '' };
         ensureStyle(doc);
-        clearHighlights(doc);
+        clearHlDoc(doc);
 
         // Primary: coordinate mode — find the canvas by its declared size and drop
         // boxes at panel coords (works for DS absolute layouts; no element matching).
@@ -221,7 +230,7 @@ export function startHighlightPoll(iframe, changes, opts, onReport) {
         if (timer) { clearInterval(timer); timer = null; }
         try {
             const doc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
-            if (doc) clearHighlights(doc);
+            if (doc) clearHlDoc(doc);
         } catch (e) { /* ignore */ }
     };
 }

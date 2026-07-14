@@ -508,6 +508,7 @@ define([
             this._lastDiffKey = null;      // diff inputs currently shown
             this._hlTimer = null;          // highlight injection poller
             this._lastChanges = null;
+            this._overlayKey = null;       // tracks which key+state the overlay currently shows (V4)
 
             this._showPlaceholder('Awaiting data', 'Pick two dashboard versions to compare (older + newer).');
         },
@@ -663,9 +664,10 @@ define([
 
         // ── overlay states ──────────────────────────────────────
 
-        _hideOverlay: function() { this.overlay.style.display = 'none'; clear(this.overlay); },
+        _hideOverlay: function() { this._overlayKey = null; this.overlay.style.display = 'none'; clear(this.overlay); },
 
         _showPlaceholder: function(headline, detail) {
+            this._overlayKey = null;
             clear(this.overlay);
             this.overlay.style.display = 'flex';
             this.overlay.appendChild(el('div', 'dashboard-preview-viz__placeholder-head', headline));
@@ -674,6 +676,13 @@ define([
 
         _showApprovalPrompt: function() {
             var p = this._pending; if (!p) return;
+            // Skip full overlay rebuild (incl. inspectSource regex) if we are
+            // already showing the approval prompt for this exact writeKey (V4 fix).
+            // Use a prefixed key so approval+rejected states for the same writeKey
+            // still rebuild when transitioning (user clicks Reject).
+            var overlayKey = 'approval:' + p.writeKey;
+            if (this._overlayKey === overlayKey) return;
+            this._overlayKey = overlayKey;
             clear(this.overlay);
             this.overlay.style.display = 'flex';
 
@@ -717,6 +726,10 @@ define([
 
         _showRejected: function() {
             var p = this._pending; if (!p) return;
+            // Skip rebuild if already showing the rejected state for this writeKey (V4 fix).
+            var overlayKey = 'rejected:' + p.writeKey;
+            if (this._overlayKey === overlayKey) return;
+            this._overlayKey = overlayKey;
             clear(this.overlay);
             this.overlay.style.display = 'flex';
             var card = el('div', 'dashboard-preview-viz__card dashboard-preview-viz__card--muted');
@@ -1041,7 +1054,8 @@ define([
             var box = doc.createElement('div');
             box.className = 'dp-injected-hl dp-injected-hl--box';
             box.style.borderColor = col.border;
-            // Dashed border for removed panels (they exist in target but are flagged removed).
+            // Dormant branch: caller (_tryInjectHighlights) skips 'removed' at line 935; kept in
+            // sync with util/highlightInject.js which uses 'dashed' for removed markers.
             box.style.borderStyle = ch.kind === 'removed' ? 'dashed' : 'solid';
             box.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.25), inset 0 0 18px ' + col.border + '33';
             node.appendChild(box);
@@ -1059,6 +1073,7 @@ define([
             // rather than mutating the removed viz's DOM or re-arming the highlight
             // timer (D5 fix).
             this._removed = true;
+            this._overlayKey = null;
             this._inflightKey = null;
             if (this._hlTimer) { clearInterval(this._hlTimer); this._hlTimer = null; }
             try { this.iframe.src = 'about:blank'; } catch (e) {}

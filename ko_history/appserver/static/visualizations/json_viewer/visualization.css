@@ -146,7 +146,6 @@
     color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums;
 }
 .kojv__line.is-folded .kojv__summary { display: inline-block; }
-.kojv__children.is-hidden { display: none; }
 
 /* syntax token roles (shared JSON + XML) */
 .kojv__k  { color: var(--t-key); }

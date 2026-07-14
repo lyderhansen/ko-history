@@ -31,6 +31,8 @@ display.visualizations.custom.ko_history.dashboard_preview.scale = <string>
 display.visualizations.custom.ko_history.dashboard_preview.background = <string>
 
 # Schematic DS-host diff viz (dashboard_preview_ds).
+# Include _time in the driving search's table (e.g. "| table role _time title data")
+# to show each column's version timestamp under its Baseline/Target label.
 display.visualizations.custom.ko_history.dashboard_preview_ds.dataField = <string>
 display.visualizations.custom.ko_history.dashboard_preview_ds.roleField = <string>
 display.visualizations.custom.ko_history.dashboard_preview_ds.baselineValue = <string>
@@ -69,8 +71,8 @@ display.visualizations.custom.ko_history.json_viewer.showCopy = <boolean>
 display.visualizations.custom.ko_history.json_viewer.themeMode = <string>
 # * Default: 'auto'. One of 'light', 'dark', or 'auto' (follows Splunk theme token).
 display.visualizations.custom.ko_history.json_viewer.mode = <string>
-# * Default: 'auto'. One of 'auto', 'source' (single version), or 'diff' (two-row compare).
-#   'auto' shows diff when a roleField column is present, source otherwise.
+# * Default: 'auto'. One of 'auto', 'single' (single version), or 'diff' (two-row compare).
+#   'auto' shows diff when a roleField column is present, single otherwise.
 display.visualizations.custom.ko_history.json_viewer.diffView = <string>
 # * Default: 'split'. Diff layout: 'split' (side-by-side) or 'unified'.
 display.visualizations.custom.ko_history.json_viewer.roleField = <string>

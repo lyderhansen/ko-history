@@ -37,7 +37,6 @@ const CSS = `
 .kojv__ln{flex:0 0 50px;text-align:right;padding:0 10px 0 0;color:var(--text-faint);background:var(--gutter-bg);border-right:1px solid var(--gutter-rule);user-select:none;font-size:11px;}
 .kojv__code{flex:1 1 auto;padding:0 14px 0 12px;white-space:pre;overflow:visible;color:var(--text);position:relative;}
 .kojv__code--foldable{padding-left:18px;cursor:pointer;}
-.kojv--wrap .kojv__code{white-space:pre-wrap;word-break:break-word;}
 .kojv__fold{position:absolute;left:2px;top:0;width:12px;height:21px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;color:var(--text-faint);font-size:9px;line-height:1;}
 .kojv__fold:hover{color:var(--primary);}
 .kojv__fold::before{content:"\\25BC";}

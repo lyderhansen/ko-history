@@ -1,4 +1,4 @@
-<nav search_view="search" color="#65A637">
+<nav search_view="search" color="#000000">
   <view name="wrapper" default="true" />
   <view name="ko_version_ds" />
   <view name="ko_statistics_ds" />
