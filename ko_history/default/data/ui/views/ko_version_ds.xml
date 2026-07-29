@@ -2104,12 +2104,6 @@
     }
   },
   "layout": {
-    "type": "absolute",
-    "options": {
-      "width": 1920,
-      "height": 2020,
-      "display": "auto"
-    },
     "globalInputs": [
       "input_time",
       "input_user",
@@ -2118,348 +2112,370 @@
       "input_type",
       "input_method"
     ],
-    "structure": [
-      {
-        "item": "viz_total",
-        "type": "block",
-        "position": {
-          "x": 0,
-          "y": 0,
-          "w": 225,
-          "h": 160
+    "tabs": {
+      "items": [
+        {
+          "layoutId": "layout_1",
+          "label": "KO Version"
         }
-      },
-      {
-        "item": "viz_apps",
-        "type": "block",
-        "position": {
-          "x": 240,
-          "y": 0,
-          "w": 225,
-          "h": 160
-        }
-      },
-      {
-        "item": "viz_versions_kpi",
-        "type": "block",
-        "position": {
-          "x": 480,
-          "y": 0,
-          "w": 225,
-          "h": 160
-        }
-      },
-      {
-        "item": "viz_withhistory",
-        "type": "block",
-        "position": {
-          "x": 720,
-          "y": 0,
-          "w": 225,
-          "h": 160
-        }
-      },
-      {
-        "item": "viz_changed7d",
-        "type": "block",
-        "position": {
-          "x": 960,
-          "y": 0,
-          "w": 225,
-          "h": 160
-        }
-      },
-      {
-        "item": "viz_private",
-        "type": "block",
-        "position": {
-          "x": 1200,
-          "y": 0,
-          "w": 225,
-          "h": 160
-        }
-      },
-      {
-        "item": "viz_deleted",
-        "type": "block",
-        "position": {
-          "x": 1440,
-          "y": 0,
-          "w": 225,
-          "h": 160
-        }
-      },
-      {
-        "item": "viz_moved",
-        "type": "block",
-        "position": {
-          "x": 1680,
-          "y": 0,
-          "w": 225,
-          "h": 160
-        }
-      },
-      {
-        "item": "viz_top10",
-        "type": "block",
-        "position": {
-          "x": 0,
-          "y": 170,
-          "w": 1145,
-          "h": 230
-        }
-      },
-      {
-        "item": "viz_mostchanged",
-        "type": "block",
-        "position": {
-          "x": 1160,
-          "y": 170,
-          "w": 745,
-          "h": 230
-        }
-      },
-      {
-        "item": "viz_link_label",
-        "type": "block",
-        "position": {
-          "x": 0,
-          "y": 420,
-          "w": 980,
-          "h": 30
-        }
-      },
-      {
-        "item": "viz_link",
-        "type": "block",
-        "position": {
-          "x": 0,
-          "y": 450,
-          "w": 980,
-          "h": 24
-        }
-      },
-      {
-        "item": "viz_table",
-        "type": "block",
-        "position": {
-          "x": 0,
-          "y": 480,
-          "w": 1905,
-          "h": 520
-        }
-      },
-      {
-        "item": "viz_table_reports",
-        "type": "block",
-        "position": {
-          "x": 0,
-          "y": 480,
-          "w": 1905,
-          "h": 520
-        }
-      },
-      {
-        "item": "viz_table_macros",
-        "type": "block",
-        "position": {
-          "x": 0,
-          "y": 480,
-          "w": 1905,
-          "h": 520
-        }
-      },
-      {
-        "item": "viz_table_eventtypes",
-        "type": "block",
-        "position": {
-          "x": 0,
-          "y": 480,
-          "w": 1905,
-          "h": 520
-        }
-      },
-      {
-        "item": "viz_table_fieldextractions",
-        "type": "block",
-        "position": {
-          "x": 0,
-          "y": 480,
-          "w": 1905,
-          "h": 520
-        }
-      },
-      {
-        "item": "viz_table_lookups",
-        "type": "block",
-        "position": {
-          "x": 0,
-          "y": 480,
-          "w": 1905,
-          "h": 520
-        }
-      },
-      {
-        "item": "viz_table_tags",
-        "type": "block",
-        "position": {
-          "x": 0,
-          "y": 480,
-          "w": 1905,
-          "h": 520
-        }
-      },
-      {
-        "item": "viz_timeline",
-        "type": "block",
-        "position": {
-          "x": 0,
-          "y": 1020,
-          "w": 1905,
-          "h": 200
-        }
-      },
-      {
-        "item": "viz_versions",
-        "type": "block",
-        "position": {
-          "x": 0,
-          "y": 1240,
-          "w": 640,
-          "h": 760
-        }
-      },
-      {
-        "item": "viz_versions_ss",
-        "type": "block",
-        "position": {
-          "x": 0,
-          "y": 1240,
-          "w": 640,
-          "h": 760
-        }
-      },
-      {
-        "item": "viz_versions_generic",
-        "type": "block",
-        "position": {
-          "x": 0,
-          "y": 1240,
-          "w": 640,
-          "h": 760
-        }
-      },
-      {
-        "item": "input_compare_newer",
-        "type": "input",
-        "position": {
-          "x": 660,
-          "y": 1240,
-          "w": 610,
-          "h": 80
-        }
-      },
-      {
-        "item": "input_compare_older",
-        "type": "input",
-        "position": {
-          "x": 1295,
-          "y": 1240,
-          "w": 610,
-          "h": 80
-        }
-      },
-      {
-        "item": "viz_source",
-        "type": "block",
-        "position": {
-          "x": 660,
-          "y": 1335,
-          "w": 1245,
-          "h": 665
-        }
-      },
-      {
-        "item": "viz_report_card",
-        "type": "block",
-        "position": {
-          "x": 660,
-          "y": 1335,
-          "w": 1245,
-          "h": 665
-        }
-      },
-      {
-        "item": "viz_open_views",
-        "type": "block",
-        "position": {
-          "x": 1000,
-          "y": 410,
-          "w": 905,
-          "h": 60
-        }
-      },
-      {
-        "item": "viz_open_savedsearch",
-        "type": "block",
-        "position": {
-          "x": 1000,
-          "y": 410,
-          "w": 905,
-          "h": 60
-        }
-      },
-      {
-        "item": "viz_open_eventtype",
-        "type": "block",
-        "position": {
-          "x": 1000,
-          "y": 410,
-          "w": 905,
-          "h": 60
-        }
-      },
-      {
-        "item": "viz_open_macro",
-        "type": "block",
-        "position": {
-          "x": 1000,
-          "y": 410,
-          "w": 905,
-          "h": 60
-        }
-      },
-      {
-        "item": "viz_open_fieldextraction",
-        "type": "block",
-        "position": {
-          "x": 1000,
-          "y": 410,
-          "w": 905,
-          "h": 60
-        }
-      },
-      {
-        "item": "viz_open_lookup",
-        "type": "block",
-        "position": {
-          "x": 1000,
-          "y": 410,
-          "w": 905,
-          "h": 60
-        }
-      },
-      {
-        "item": "viz_open_tag",
-        "type": "block",
-        "position": {
-          "x": 1000,
-          "y": 410,
-          "w": 905,
-          "h": 60
-        }
+      ],
+      "options": {
+        "barPosition": "top",
+        "showTabBar": false
       }
-    ]
+    },
+    "layoutDefinitions": {
+      "layout_1": {
+        "type": "absolute",
+        "options": {
+          "width": 1920,
+          "height": 2020,
+          "display": "auto"
+        },
+        "structure": [
+          {
+            "item": "viz_total",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 0,
+              "w": 225,
+              "h": 160
+            }
+          },
+          {
+            "item": "viz_apps",
+            "type": "block",
+            "position": {
+              "x": 240,
+              "y": 0,
+              "w": 225,
+              "h": 160
+            }
+          },
+          {
+            "item": "viz_versions_kpi",
+            "type": "block",
+            "position": {
+              "x": 480,
+              "y": 0,
+              "w": 225,
+              "h": 160
+            }
+          },
+          {
+            "item": "viz_withhistory",
+            "type": "block",
+            "position": {
+              "x": 720,
+              "y": 0,
+              "w": 225,
+              "h": 160
+            }
+          },
+          {
+            "item": "viz_changed7d",
+            "type": "block",
+            "position": {
+              "x": 960,
+              "y": 0,
+              "w": 225,
+              "h": 160
+            }
+          },
+          {
+            "item": "viz_private",
+            "type": "block",
+            "position": {
+              "x": 1200,
+              "y": 0,
+              "w": 225,
+              "h": 160
+            }
+          },
+          {
+            "item": "viz_deleted",
+            "type": "block",
+            "position": {
+              "x": 1440,
+              "y": 0,
+              "w": 225,
+              "h": 160
+            }
+          },
+          {
+            "item": "viz_moved",
+            "type": "block",
+            "position": {
+              "x": 1680,
+              "y": 0,
+              "w": 225,
+              "h": 160
+            }
+          },
+          {
+            "item": "viz_top10",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 170,
+              "w": 1145,
+              "h": 230
+            }
+          },
+          {
+            "item": "viz_mostchanged",
+            "type": "block",
+            "position": {
+              "x": 1160,
+              "y": 170,
+              "w": 745,
+              "h": 230
+            }
+          },
+          {
+            "item": "viz_link_label",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 420,
+              "w": 980,
+              "h": 30
+            }
+          },
+          {
+            "item": "viz_link",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 450,
+              "w": 980,
+              "h": 24
+            }
+          },
+          {
+            "item": "viz_table",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 480,
+              "w": 1905,
+              "h": 520
+            }
+          },
+          {
+            "item": "viz_table_reports",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 480,
+              "w": 1905,
+              "h": 520
+            }
+          },
+          {
+            "item": "viz_table_macros",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 480,
+              "w": 1905,
+              "h": 520
+            }
+          },
+          {
+            "item": "viz_table_eventtypes",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 480,
+              "w": 1905,
+              "h": 520
+            }
+          },
+          {
+            "item": "viz_table_fieldextractions",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 480,
+              "w": 1905,
+              "h": 520
+            }
+          },
+          {
+            "item": "viz_table_lookups",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 480,
+              "w": 1905,
+              "h": 520
+            }
+          },
+          {
+            "item": "viz_table_tags",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 480,
+              "w": 1905,
+              "h": 520
+            }
+          },
+          {
+            "item": "viz_timeline",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 1020,
+              "w": 1905,
+              "h": 200
+            }
+          },
+          {
+            "item": "viz_versions",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 1240,
+              "w": 640,
+              "h": 760
+            }
+          },
+          {
+            "item": "viz_versions_ss",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 1240,
+              "w": 640,
+              "h": 760
+            }
+          },
+          {
+            "item": "viz_versions_generic",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 1240,
+              "w": 640,
+              "h": 760
+            }
+          },
+          {
+            "item": "input_compare_newer",
+            "type": "input",
+            "position": {
+              "x": 660,
+              "y": 1240,
+              "w": 610,
+              "h": 80
+            }
+          },
+          {
+            "item": "input_compare_older",
+            "type": "input",
+            "position": {
+              "x": 1295,
+              "y": 1240,
+              "w": 610,
+              "h": 80
+            }
+          },
+          {
+            "item": "viz_source",
+            "type": "block",
+            "position": {
+              "x": 660,
+              "y": 1335,
+              "w": 1245,
+              "h": 665
+            }
+          },
+          {
+            "item": "viz_report_card",
+            "type": "block",
+            "position": {
+              "x": 660,
+              "y": 1335,
+              "w": 1245,
+              "h": 665
+            }
+          },
+          {
+            "item": "viz_open_views",
+            "type": "block",
+            "position": {
+              "x": 1000,
+              "y": 410,
+              "w": 905,
+              "h": 60
+            }
+          },
+          {
+            "item": "viz_open_savedsearch",
+            "type": "block",
+            "position": {
+              "x": 1000,
+              "y": 410,
+              "w": 905,
+              "h": 60
+            }
+          },
+          {
+            "item": "viz_open_eventtype",
+            "type": "block",
+            "position": {
+              "x": 1000,
+              "y": 410,
+              "w": 905,
+              "h": 60
+            }
+          },
+          {
+            "item": "viz_open_macro",
+            "type": "block",
+            "position": {
+              "x": 1000,
+              "y": 410,
+              "w": 905,
+              "h": 60
+            }
+          },
+          {
+            "item": "viz_open_fieldextraction",
+            "type": "block",
+            "position": {
+              "x": 1000,
+              "y": 410,
+              "w": 905,
+              "h": 60
+            }
+          },
+          {
+            "item": "viz_open_lookup",
+            "type": "block",
+            "position": {
+              "x": 1000,
+              "y": 410,
+              "w": 905,
+              "h": 60
+            }
+          },
+          {
+            "item": "viz_open_tag",
+            "type": "block",
+            "position": {
+              "x": 1000,
+              "y": 410,
+              "w": 905,
+              "h": 60
+            }
+          }
+        ]
+      }
+    }
   }
 }
   ]]></definition>

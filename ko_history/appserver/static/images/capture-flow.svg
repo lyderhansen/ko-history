@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 340" width="980" height="340"
+     font-family="Splunk Platform Sans, Roboto, Helvetica Neue, Arial, sans-serif">
+  <!-- The two event streams that make up a KO's history. This is the mental
+       model everything else depends on, and it was previously prose only. -->
+  <defs>
+    <marker id="c_arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#00cdaf"/>
+    </marker>
+  </defs>
+
+  <!-- stream 1: backups -->
+  <rect x="20" y="14" width="410" height="104" rx="6" fill="#1b2228" stroke="#3a444d"/>
+  <text x="40" y="40" fill="#e1e6eb" font-size="14" font-weight="600"
+        font-family="Splunk Platform Mono, SF Mono, Menlo, monospace">ko_*_backup</text>
+  <text x="40" y="60" fill="#8c98a3" font-size="12">REST snapshot, every 15 minutes, only what changed</text>
+  <text x="40" y="82" fill="#7fd9c9" font-size="12">carries the full source or configuration</text>
+  <text x="40" y="102" fill="#8c98a3" font-size="11.5">_time = the object's own updated timestamp, not the run time</text>
+
+  <!-- stream 2: audit -->
+  <rect x="550" y="14" width="410" height="104" rx="6" fill="#1b2228" stroke="#3a444d"/>
+  <text x="570" y="40" fill="#e1e6eb" font-size="14" font-weight="600"
+        font-family="Splunk Platform Mono, SF Mono, Menlo, monospace">ko_all_delete_audit</text>
+  <text x="570" y="60" fill="#8c98a3" font-size="12">scrapes _internal access logs, hourly</text>
+  <text x="570" y="82" fill="#ff9aa5" font-size="12">carries no source: the object is already gone</text>
+  <text x="570" y="102" fill="#8c98a3" font-size="11.5">the only record of who did it</text>
+
+  <path d="M225 118 L225 148 L490 148 L490 176" fill="none" stroke="#00cdaf" stroke-width="1.6" marker-end="url(#c_arw)"/>
+  <path d="M755 118 L755 148 L490 148" fill="none" stroke="#00cdaf" stroke-width="1.6"/>
+
+  <!-- the index -->
+  <rect x="300" y="178" width="380" height="52" rx="6" fill="#0d2b28" stroke="#00cdaf" stroke-width="1.4"/>
+  <text x="490" y="210" text-anchor="middle" fill="#00cdaf" font-size="16" font-weight="700"
+        font-family="Splunk Platform Mono, SF Mono, Menlo, monospace">index = ko_history</text>
+
+  <line x1="490" y1="230" x2="490" y2="258" stroke="#00cdaf" stroke-width="1.6" marker-end="url(#c_arw)"/>
+
+  <!-- collapsed row -->
+  <rect x="150" y="260" width="680" height="62" rx="6" fill="#161c21" stroke="#2f373f"/>
+  <text x="490" y="284" text-anchor="middle" fill="#e1e6eb" font-size="14" font-weight="600">one row per knowledge object</text>
+  <text x="490" y="306" text-anchor="middle" fill="#8c98a3" font-size="12">carrying its whole version history, snapshots and mutations interleaved by time</text>
+</svg>

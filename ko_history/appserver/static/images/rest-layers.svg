@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 330" width="980" height="330"
+     font-family="Splunk Platform Sans, Roboto, Helvetica Neue, Arial, sans-serif">
+  <!-- The two native REST layers, and the gap between them that is the reason
+       this app exists. -->
+  <!-- Layer 1 -->
+  <rect x="20" y="14" width="450" height="150" rx="6" fill="#1b2228" stroke="#3a444d"/>
+  <text x="40" y="40" fill="#8c98a3" font-size="11" font-weight="700" letter-spacing="0.08em">LAYER 1</text>
+  <text x="40" y="64" fill="#e1e6eb" font-size="14" font-weight="600"
+        font-family="Splunk Platform Mono, SF Mono, Menlo, monospace">/data/ui/views</text>
+  <rect x="40" y="78" width="150" height="22" rx="11" fill="#0d2b28" stroke="#00cdaf"/>
+  <text x="115" y="93" text-anchor="middle" fill="#00cdaf" font-size="11.5" font-weight="600">BOTH formats</text>
+  <text x="40" y="122" fill="#8c98a3" font-size="12">Every view is a row here, Studio or Simple XML.</text>
+  <text x="40" y="142" fill="#8c98a3" font-size="12">Create, read, update, delete all work.</text>
+
+  <!-- Layer 2 -->
+  <rect x="510" y="14" width="450" height="150" rx="6" fill="#1b2228" stroke="#3a444d"/>
+  <text x="530" y="40" fill="#8c98a3" font-size="11" font-weight="700" letter-spacing="0.08em">LAYER 2</text>
+  <text x="530" y="64" fill="#e1e6eb" font-size="14" font-weight="600"
+        font-family="Splunk Platform Mono, SF Mono, Menlo, monospace">/history  ·  /revision</text>
+  <rect x="530" y="78" width="176" height="22" rx="11" fill="#2b1a1d" stroke="#ff677b"/>
+  <text x="618" y="93" text-anchor="middle" fill="#ff9aa5" font-size="11.5" font-weight="600">Dashboard Studio only</text>
+  <text x="530" y="122" fill="#8c98a3" font-size="12">Native version history, but only for Studio views</text>
+  <text x="530" y="142" fill="#8c98a3" font-size="12">that were saved through the editor.</text>
+
+  <!-- the gap -->
+  <rect x="20" y="186" width="940" height="128" rx="6" fill="#0d2b28" stroke="#00cdaf" stroke-width="1.4"/>
+  <text x="44" y="214" fill="#00cdaf" font-size="14" font-weight="700">What KO History adds</text>
+  <text x="44" y="242" fill="#cfe9e3" font-size="12.5">Simple XML gets version history too, which Layer 2 never provides.</text>
+  <text x="44" y="264" fill="#cfe9e3" font-size="12.5">History survives deletion, because it lives in a separate index rather than on the object.</text>
+  <text x="44" y="286" fill="#cfe9e3" font-size="12.5">Seven object types, not just dashboards: reports, alerts, macros, event types, extractions, lookups, tags.</text>
+  <text x="44" y="306" fill="#cfe9e3" font-size="12.5">Restore into any app, not only back over the original.</text>
+</svg>

@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 380" width="980" height="380"
+     font-family="Splunk Platform Sans, Roboto, Helvetica Neue, Arial, sans-serif">
+  <!-- Which two versions a click compares, and how the dropdowns override it.
+       Clicking a version means "the version I am inspecting" everywhere. -->
+  <defs>
+    <marker id="v_arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#00cdaf"/>
+    </marker>
+  </defs>
+
+  <text x="20" y="22" fill="#8c98a3" font-size="11" font-weight="700" letter-spacing="0.08em">THE VERSION LIST, NEWEST FIRST</text>
+
+  <!-- version rows -->
+  <rect x="20" y="34" width="300" height="34" rx="5" fill="#1b2228" stroke="#3a444d"/>
+  <text x="36" y="56" fill="#e1e6eb" font-size="12.5" font-family="Splunk Platform Mono, SF Mono, Menlo, monospace">#1  2026-07-28 14:02  (latest)</text>
+
+  <rect x="20" y="74" width="300" height="34" rx="5" fill="#1b2228" stroke="#3a444d"/>
+  <text x="36" y="96" fill="#e1e6eb" font-size="12.5" font-family="Splunk Platform Mono, SF Mono, Menlo, monospace">#2  2026-07-26 09:41</text>
+
+  <!-- the clicked one -->
+  <rect x="20" y="114" width="300" height="34" rx="5" fill="#0d2b28" stroke="#00cdaf" stroke-width="1.6"/>
+  <text x="36" y="136" fill="#00cdaf" font-size="12.5" font-weight="700" font-family="Splunk Platform Mono, SF Mono, Menlo, monospace">#3  2026-07-21 17:15</text>
+  <text x="330" y="136" fill="#00cdaf" font-size="12" font-weight="600">you click this one</text>
+
+  <rect x="20" y="154" width="300" height="34" rx="5" fill="#1b2228" stroke="#7fd9c9" stroke-dasharray="4 3"/>
+  <text x="36" y="176" fill="#a9b4bd" font-size="12.5" font-family="Splunk Platform Mono, SF Mono, Menlo, monospace">#4  2026-07-19 11:08</text>
+
+  <rect x="20" y="194" width="300" height="34" rx="5" fill="#1b2228" stroke="#3a444d"/>
+  <text x="36" y="216" fill="#8c98a3" font-size="12.5" font-family="Splunk Platform Mono, SF Mono, Menlo, monospace">#5  2026-07-14 08:30  (created)</text>
+
+  <!-- pairing -->
+  <path d="M330 131 C 400 131, 400 171, 330 171" fill="none" stroke="#00cdaf" stroke-width="1.6"/>
+  <line x1="400" y1="151" x2="452" y2="151" stroke="#00cdaf" stroke-width="1.6" marker-end="url(#v_arw)"/>
+
+  <rect x="454" y="112" width="506" height="78" rx="6" fill="#0d2b28" stroke="#00cdaf" stroke-width="1.4"/>
+  <text x="474" y="136" fill="#00cdaf" font-size="13" font-weight="700">Default: what did this edit change?</text>
+  <text x="474" y="158" fill="#cfe9e3" font-size="12">The version you clicked is the NEWER side. Its partner is the one</text>
+  <text x="474" y="176" fill="#cfe9e3" font-size="12">immediately older. One click, no configuration.</text>
+
+  <line x1="20" y1="248" x2="960" y2="248" stroke="#2f373f"/>
+
+  <text x="20" y="276" fill="#8c98a3" font-size="11" font-weight="700" letter-spacing="0.08em">OVERRIDE: COMPARE ANY TWO</text>
+
+  <rect x="20" y="288" width="300" height="44" rx="5" fill="#1b2228" stroke="#3a444d"/>
+  <text x="36" y="306" fill="#8c98a3" font-size="11">Compare this version</text>
+  <text x="36" y="324" fill="#e1e6eb" font-size="12" font-family="Splunk Platform Mono, SF Mono, Menlo, monospace">#1  2026-07-28 14:02</text>
+
+  <rect x="336" y="288" width="300" height="44" rx="5" fill="#1b2228" stroke="#3a444d"/>
+  <text x="352" y="306" fill="#8c98a3" font-size="11">against this one</text>
+  <text x="352" y="324" fill="#e1e6eb" font-size="12" font-family="Splunk Platform Mono, SF Mono, Menlo, monospace">#5  2026-07-14 08:30</text>
+
+  <line x1="640" y1="310" x2="692" y2="310" stroke="#00cdaf" stroke-width="1.6" marker-end="url(#v_arw)"/>
+  <rect x="694" y="288" width="266" height="44" rx="5" fill="#161c21" stroke="#2f373f"/>
+  <text x="827" y="308" text-anchor="middle" fill="#e1e6eb" font-size="12">#1 against #5, skipping the rest</text>
+  <text x="827" y="325" text-anchor="middle" fill="#8c98a3" font-size="11">order does not matter, newer is always the target</text>
+
+  <text x="20" y="360" fill="#5c6970" font-size="11.5">Delete and move rows come from the audit stream and carry no source, so they cannot be either side of a comparison.</text>
+</svg>
