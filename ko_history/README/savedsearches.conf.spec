@@ -48,7 +48,7 @@ display.visualizations.custom.ko_history.source_viewer.showLineNumbers = <boolea
 display.visualizations.custom.ko_history.source_viewer.showFooter = <boolean>
 # * Default: true. Shows the line/character count footer.
 display.visualizations.custom.ko_history.source_viewer.wrap = <boolean>
-# * Default: false. Word-wrap long lines.
+# * Default: true. Word-wrap long lines instead of clipping them.
 display.visualizations.custom.ko_history.source_viewer.banding = <boolean>
 # * Default: true. Alternate row shading.
 display.visualizations.custom.ko_history.source_viewer.showCopy = <boolean>

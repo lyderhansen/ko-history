@@ -32,7 +32,7 @@
       "type": "splunk.markdown",
       "name": "md_restore",
       "options": {
-        "markdown": "## Restore: what it does, and what it does not\n\nRestore writes a **real knowledge object** into whichever app you pick, from the\nsnapshot you selected. It is the reason the app exists, so it is worth being\nprecise about its edges.\n\n**What you get back:** the object's source or configuration exactly as captured.\nFor a dashboard that is the full XML or Studio JSON. For a saved search it is\nthe search string, schedule, alert condition and trigger actions.\n\n**What you do not get back:**\n\n- **Sharing and ownership.** Restored objects are written as owner `nobody`\n  (app-shared). The original ACLs are not replayed. Re-apply permissions\n  yourself if they mattered.\n- **Lookup file contents.** A lookup's *definition* is versioned; the underlying\n  `.csv` or KV-store collection is not, and is not restored.\n- **Tag removals.** Restoring tags re-enables the captured assignments on a\n  `field=value` pair. Tags added since the snapshot are not removed.\n\n**Restoring over an existing object is irreversible** and requires a separate,\nexplicit confirmation in the UI. If KO History also has a snapshot of what you\noverwrote, that snapshot is your way back. If it does not, there is none.\n\n**You need write access** to `data/ui/views` (or the relevant endpoint) in the\ntarget app. Restore is an admin capability by design; see Permissions below.\n"
+        "markdown": "## Restore: what it does, and what it does not\n\nRestore writes a **real knowledge object** into whichever app you pick, from the\nsnapshot you selected. It is the reason the app exists, so it is worth being\nprecise about its edges.\n\n**What you get back:** the object's source or configuration exactly as captured.\nFor a dashboard that is the full XML or Studio JSON. For a saved search it is\nthe search string, schedule, alert condition and trigger actions.\n\n**Which types can be restored.** All seven types are captured, previewed and\ncompared. One-click restore currently covers **dashboards and saved searches**.\nRestore for macros, event types, field extractions, lookups and tags is\nimplemented but disabled pending further testing, so the Restore button stays\ninactive for those. Their history is still captured, so nothing is lost while\nit is switched off.\n\n**What you do not get back:**\n\n- **Sharing and ownership.** Restored objects are written as owner `nobody`\n  (app-shared). The original ACLs are not replayed. Re-apply permissions\n  yourself if they mattered.\n- **Lookup file contents.** A lookup's *definition* is versioned; the underlying\n  `.csv` or KV-store collection is not, and is not restored.\n- **Tag removals.** Restoring tags re-enables the captured assignments on a\n  `field=value` pair. Tags added since the snapshot are not removed.\n\n**Restoring over an existing object is irreversible** and requires a separate,\nexplicit confirmation in the UI. If KO History also has a snapshot of what you\noverwrote, that snapshot is your way back. If it does not, there is none.\n\n**You need write access** to `data/ui/views` (or the relevant endpoint) in the\ntarget app. Restore is an admin capability by design; see Permissions below.\n"
       }
     },
     "md_history": {
@@ -110,7 +110,7 @@
     "type": "absolute",
     "options": {
       "width": 1280,
-      "height": 10415,
+      "height": 10562,
       "display": "auto"
     },
     "structure": [
@@ -151,7 +151,7 @@
           "x": 0,
           "y": 2307,
           "w": 1280,
-          "h": 637
+          "h": 784
         }
       },
       {
@@ -159,7 +159,7 @@
         "type": "block",
         "position": {
           "x": 0,
-          "y": 2964,
+          "y": 3111,
           "w": 1280,
           "h": 511
         }
@@ -169,7 +169,7 @@
         "type": "block",
         "position": {
           "x": 0,
-          "y": 3495,
+          "y": 3642,
           "w": 1280,
           "h": 406
         }
@@ -179,7 +179,7 @@
         "type": "block",
         "position": {
           "x": 0,
-          "y": 3921,
+          "y": 4068,
           "w": 1280,
           "h": 574
         }
@@ -189,7 +189,7 @@
         "type": "block",
         "position": {
           "x": 0,
-          "y": 4515,
+          "y": 4662,
           "w": 1280,
           "h": 637
         }
@@ -199,7 +199,7 @@
         "type": "block",
         "position": {
           "x": 0,
-          "y": 5172,
+          "y": 5319,
           "w": 1280,
           "h": 1750
         }
@@ -209,7 +209,7 @@
         "type": "block",
         "position": {
           "x": 0,
-          "y": 6942,
+          "y": 7089,
           "w": 1280,
           "h": 1330
         }
@@ -219,7 +219,7 @@
         "type": "block",
         "position": {
           "x": 0,
-          "y": 8292,
+          "y": 8439,
           "w": 1280,
           "h": 700
         }
@@ -229,7 +229,7 @@
         "type": "block",
         "position": {
           "x": 0,
-          "y": 9012,
+          "y": 9159,
           "w": 1280,
           "h": 532
         }
@@ -239,7 +239,7 @@
         "type": "block",
         "position": {
           "x": 0,
-          "y": 9564,
+          "y": 9711,
           "w": 1280,
           "h": 343
         }
@@ -249,7 +249,7 @@
         "type": "block",
         "position": {
           "x": 0,
-          "y": 9927,
+          "y": 10074,
           "w": 1280,
           "h": 448
         }

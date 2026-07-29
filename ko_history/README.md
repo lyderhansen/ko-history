@@ -8,6 +8,7 @@ A dashboard disappears, a critical alert gets overwritten, a report is lost, and
 
 - **A version log per KO**: every change captured with timestamp, author, and full source.
 - **An audit trail**: DELETE and MOVE actions linked to the user who performed them.
+- **Restore scope**: all seven object types are captured, previewed and compared. **One-click restore currently covers dashboards and saved searches**; restore for macros, event types, field extractions, lookups and tags is implemented but disabled pending further testing.
 - **Visual recovery**: preview *any* past version inline, diff two versions (boxes drawn over changed panels on the live render), then restore the source into any app in one click.
 - **Survives deletion**: history lives in a separate summary index, so it outlives the object.
 
@@ -127,6 +128,7 @@ Apache License 2.0. The full text ships with the app as `LICENSE`.
 
 | Version | Notes |
 |---------|-------|
+| 1.1.1   | Source viewer: copy either side of a diff, not just the newer one, and long lines now wrap instead of being clipped (the wrapper's inline source view had no wrap mode at all). Restore scope stated explicitly: all seven object types are captured, previewed and compared, while one-click restore covers dashboards and saved searches. |
 | 1.1.0   | Polish and packaging release. Searches now run as async jobs instead of a blocking oneshot, fixing a preview panel that could hang indefinitely on a slow instance; a progress bar and a 30-second timeout replace the silent spinner. Restore, compare, and approval dialogs share one visual language. View mode writes a single preview slot. Every shipped search carries inline SPL comments. Apache-2.0 `LICENSE` now ships with the app. **Removed:** the REST Explorer and KO Statistics dashboards, which were development tools rather than product surfaces. |
 | 1.0.3   | 12 MB slimmer tarball (unused static assets removed). **Viz renames/removals. Action required if you reference these ids from other dashboards:** `json_viewer` was **renamed** to `source_viewer` (`ko_history.json_viewer` → `ko_history.source_viewer`); `dashboard_preview_ds` was **removed** (dashboards using `ko_history.dashboard_preview_ds` will lose that panel). Also: expand/view UX improvements, Newer/Older navigation in the compare panel, KPI filter controls. |
 | 1.0.2   | Deep-audit cleanup: live-render teardown leak fix, unified empty-data policy across all four vizs, audit rows now show *who* deleted/moved (`By` column + history), `realtime_schedule` restored faithfully, index schema trimmed (`userName` and SPL no-ops dropped), DS page-load scans 4→2, icons shipped from `static/` only. |

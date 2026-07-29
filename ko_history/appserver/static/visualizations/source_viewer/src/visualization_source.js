@@ -200,7 +200,9 @@ define([
                 })(),
                 showLineNumbers: g('showLineNumbers', 'true') === 'true',
                 showFooter: g('showFooter', 'true') === 'true',
-                wrap: g('wrap', 'false') === 'true',
+                // Default ON: clipping a long line hides content silently, which
+                // is worse than a taller row. Turn it off for a fixed-width view.
+                wrap: g('wrap', 'true') === 'true',
                 banding: g('banding', 'true') === 'true',
                 showCopy: g('showCopy', 'true') === 'true',
                 theme: this._resolveTheme(g('themeMode', 'auto')),
@@ -585,13 +587,23 @@ define([
             head.appendChild(slot);
 
             if (c.showCopy) {
-                var copy = el('button', 'kojv__copy');
-                copy.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+                // Both sides are copyable. Recovering an old version by hand is a
+                // real workflow, and until now only the newer side could be lifted
+                // out. Order matches the "older -> newer" direction stated to the
+                // left, so the toolbar reads consistently.
+                var copyIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
                     '<rect x="9" y="9" width="11" height="11" rx="1.5"/>' +
-                    '<path d="M5 15V5a1.5 1.5 0 0 1 1.5-1.5H15"/></svg><span>Copy newer</span>';
-                var srcText = mTarg.pretty;
-                copy.addEventListener('click', function () { copyToClipboard(srcText, copy); });
-                head.appendChild(copy);
+                    '<path d="M5 15V5a1.5 1.5 0 0 1 1.5-1.5H15"/></svg>';
+                var mkCopy = function (label, text) {
+                    var b = el('button', 'kojv__copy');
+                    b.innerHTML = copyIcon + '<span>' + label + '</span>';
+                    b.setAttribute('title', 'Copy the ' + label.replace('Copy ', '') + ' version to the clipboard');
+                    // `text` is captured per button, so the two never share a source.
+                    b.addEventListener('click', function () { copyToClipboard(text, b); });
+                    return b;
+                };
+                head.appendChild(mkCopy('Copy older', mBase.pretty));
+                head.appendChild(mkCopy('Copy newer', mTarg.pretty));
             }
             this.root.appendChild(head);
 
@@ -692,11 +704,17 @@ define([
     }
     function copyToClipboard(text, btn) {
         function flash() {
+            // Restore this button's OWN label. Resetting to a hardcoded "Copy"
+            // renamed "Copy newer" to "Copy" after a single use, and with both a
+            // newer and an older button that made them indistinguishable.
+            var span = btn.querySelector('span');
+            var original = span ? span.textContent : '';
             btn.classList.add('is-copied');
-            var span = btn.querySelector('span'); if (span) span.textContent = 'Copied ✓';
+            if (span) span.textContent = 'Copied ✓';
             setTimeout(function () {
                 btn.classList.remove('is-copied');
-                var s2 = btn.querySelector('span'); if (s2) s2.textContent = 'Copy';
+                var s2 = btn.querySelector('span');
+                if (s2) s2.textContent = original;
             }, 1400);
         }
         try {
