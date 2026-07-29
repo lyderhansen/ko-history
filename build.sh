@@ -85,11 +85,16 @@ fi
 echo ""
 
 # --- E8: IP scrub + guard ---------------------------------------------------
-# @splunk/visualization-schemas (bundled by dashboard-core inside
-# live_render.chunk.js) ships the literal IP 12.21.1.11 as an example value
-# inside an option description string. AppInspect flags any IP literal, so we
-# replace it with a non-IP placeholder. Applied to ALL emitted JS — viz
-# bundles AND the wrapper page — so no path is missed.
+# AppInspect flags any IP literal in shipped JS, including ones that are just
+# example values inside a third-party library's option descriptions. This
+# replaces the known offender with a non-IP placeholder across ALL emitted JS,
+# both viz bundles and the wrapper page, so no path is missed.
+#
+# The library that carried it (@splunk/visualization-schemas, via dashboard-core)
+# left with dashboard_preview_ds in 1.0.3, so the scrub is currently a no-op.
+# It stays because the guard below is the useful half: it fails the build if a
+# future dependency reintroduces an IP literal, rather than letting AppInspect
+# find it after upload.
 BANNED_IP='12\.21\.1\.11'
 for js_file in \
     "$APP_DIR"/appserver/static/pages/*.js \

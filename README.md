@@ -3,7 +3,7 @@
 **Automatic versioning and recovery for Splunk knowledge objects.**
 
 Every Splunk admin has been there: a dashboard disappears, a critical alert gets
-overwritten, or a report is lost — with no way back. KO History is a lightweight
+overwritten, or a report is lost, with no way back. KO History is a lightweight
 Splunk app that automatically captures and versions your user-generated knowledge
 objects so you can **audit every change** and **recover content** after accidental
 deletes, overwrites, or moves.
@@ -21,7 +21,7 @@ have in Splunk:
    actions, recording *who* changed *what* and *when*.
 
 A dashboard and an in-app page then join those streams so every knowledge object
-shows its full mutation history — with a visual diff between versions and one-click
+shows its full mutation history, with a visual diff between versions and one-click
 restore.
 
 ## What it captures
@@ -34,17 +34,18 @@ All seven knowledge-object types are **captured, audited, and viewable**:
 
 ## Restore
 
-One-click restore recovers a captured version back into Splunk as a real object —
+One-click restore recovers a captured version back into Splunk as a real object,
 into the original app or any app you choose.
 
-- **v1.0 restores: dashboards, reports, and alerts** (reports and alerts are both
+- **Restore covers dashboards, reports and alerts** (reports and alerts are both
   saved searches).
 - Restore for the other captured types (macros, event types, field extractions,
-  lookups, tags) is on the roadmap — they are versioned and viewable today.
+  lookups and tags) is implemented but disabled pending further testing. They are
+  captured, previewed and compared today, so no history is lost while it is off.
 
 ## Install & deploy
 
-Deployment is three steps — **create the index → install the app → enable the
+Deployment is three steps: **create the index → install the app → enable the
 searches**. See [`ko_history/README/DEPLOY.md`](ko_history/README/DEPLOY.md) for the
 full guide (including Splunk Cloud index creation via ACS).
 
@@ -69,7 +70,7 @@ Cloud, create the `ko_history` index via ACS / the Cloud console before installi
 
 ## Status
 
-Version **1.0.3**.
+Version **1.1.1**.
 
 ## License
 

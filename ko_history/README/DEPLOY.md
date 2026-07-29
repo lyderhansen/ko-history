@@ -14,7 +14,7 @@ The index name is fixed at `ko_history` in this release. Create it before instal
   history (the app assumes audit-grade retention).
 - **Splunk Enterprise (on-prem):** the bundled `default/indexes.conf` creates `ko_history`
   with a 20-year frozen period. No action needed unless you manage indexes centrally
-  (indexer cluster) — there, create `ko_history` through your cluster's index management.
+  (indexer cluster). There, create `ko_history` through your cluster's index management.
 
 ## 2. Install the app
 
@@ -31,15 +31,15 @@ Then restart Splunk (required for the bundled React app page and custom visualiz
 The capture saved searches ship **disabled**. Enable the per-type backup and the combined
 delete-audit searches under **Settings → Searches, reports, and alerts** (app: KO History).
 Optionally run each one-time `*_backfill` search **once** to seed a snapshot of existing KOs
-(they are disabled by default and must not be scheduled — re-running duplicates snapshots).
+(they are disabled by default and must not be scheduled: re-running duplicates snapshots).
 
 **Sizing note:** each backup search enumerates the full object list for its type via local
 REST every 15 minutes. On large search heads with thousands of KOs per type, each run
-returns thousands of rows — it is cheap (local REST, no index scan), but budget for it in
+returns thousands of rows. It is cheap (local REST, no index scan), but budget for it in
 your scheduler load and summary index ingest rate.
 
-**Optional — KO Statistics dashboard:** `ko_tracked_kos_lookup_builder` and
-`ko_usage_collector` are both disabled by default and work as a pair — enable both together
+**Optional, usage statistics:** `ko_tracked_kos_lookup_builder` and
+`ko_usage_collector` are both disabled by default and work as a pair, so enable both together
 (or neither). They capture daily per-KO access and run counts and feed the statistics
 dashboard; enabling only one is harmless but produces no useful data.
 
@@ -54,5 +54,5 @@ is on the roadmap.
 
 The index name `ko_history` is referenced in several layers (saved-search SPL and summary
 targets, dashboard searches, and the app page bundle). Renaming it is not a single-setting
-change in v1.0 — see the in-app **KO History — how the pieces fit together** help page for
+change. See the in-app **KO History: how the pieces fit together** help page for
 the full list of change points.

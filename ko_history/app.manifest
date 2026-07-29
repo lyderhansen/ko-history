@@ -1,0 +1,49 @@
+{
+    "schemaVersion": "2.0.0",
+    "info": {
+        "title": "KO History",
+        "id": {
+            "group": null,
+            "name": "ko_history",
+            "version": "1.1.1"
+        },
+        "author": [
+            {
+                "name": "Community",
+                "email": null,
+                "company": null
+            }
+        ],
+        "releaseDate": null,
+        "description": "Captures and versions Splunk knowledge objects (dashboards, reports, alerts, macros, event types, field extractions, lookup definitions and tags) into a summary index so admins can audit changes and recover content after accidental deletes, overwrites or moves. Bundles custom visualizations and a React app page for inline visual version-history diffs and change overlays. All seven object types are captured, previewed and compared; one-click restore covers dashboards and saved searches.",
+        "classification": {
+            "intendedAudience": "IT Professionals",
+            "categories": [
+                "Utilities",
+                "Application Management"
+            ],
+            "developmentStatus": "Production/Stable"
+        },
+        "commonInformationModels": null,
+        "license": {
+            "name": "Apache License 2.0",
+            "text": "LICENSE",
+            "uri": "https://www.apache.org/licenses/LICENSE-2.0"
+        },
+        "privacyPolicy": {
+            "name": null,
+            "text": null,
+            "uri": null
+        },
+        "releaseNotes": {
+            "name": null,
+            "text": "README.md",
+            "uri": null
+        }
+    },
+    "dependencies": null,
+    "tasks": null,
+    "inputGroups": null,
+    "incompatibleApps": null,
+    "platformRequirements": null
+}
