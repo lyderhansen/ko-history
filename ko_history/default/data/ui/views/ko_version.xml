@@ -138,7 +138,7 @@
   <row>
     <panel>
       <table>
-        <title>$data_type$ — click a row to inspect version history</title>
+        <title>$data_type$. Click a row to inspect version history</title>
         <search base="baseSearch">
           <query>| fillnull value=n/a
 | search label="$searchForDashboard$" OR title="$searchForDashboard$" appName IN ($selectApp$) owner="$selectUser$" latestMethod="$DeletedToken$"
@@ -181,7 +181,7 @@
   <row depends="$showDrilldown$">
     <panel>
       <table>
-        <title>Versions of "$drilldownTitle$" — click a row to diff</title>
+        <title>Versions of "$drilldownTitle$". Click a row to diff</title>
         <search base="baseSearchDataView">
           <query>| table _time</query>
         </search>
@@ -193,7 +193,7 @@
       </table>
     </panel>
     <panel>
-      <title>Rendered preview — latest version</title>
+      <title>Rendered preview: latest version</title>
       <viz type="ko_history.dashboard_preview">
         <search base="baseSearchPreview">
           <query>| head 1
@@ -217,7 +217,7 @@
   </row>
   <row depends="$showDrilldown_diffPanel$">
     <panel>
-      <title>Textual diff — selected version vs previous</title>
+      <title>Textual diff: selected version vs previous</title>
       <table>
         <search base="baseSearchDataView">
           <query>where _time&lt;=$time$
@@ -229,7 +229,7 @@
       </table>
     </panel>
     <panel>
-      <title>Visual diff — selected version vs previous</title>
+      <title>Visual diff: selected version vs previous</title>
       <viz type="ko_history.dashboard_preview">
         <search base="baseSearchPreview">
           <query>where _time&lt;=$time$
@@ -256,10 +256,11 @@
   </row>
   <row depends="$hidden$">
     <panel>
-      <title>Hidden — drilldown source (raw XML extraction for diff panel)</title>
+      <title>Hidden: drilldown source (raw XML extraction for diff panel)</title>
       <table>
         <search id="baseSearchDataView">
           <query>index="ko_history" source IN ($koType$) NOT source="ko_usage" title="$drilldownTitle$"
+```WHAT: unwraps the stored KO source for the textual diff panel. The sed steps strip the surrounding data="..." envelope and un-escape backslashes, leaving raw dashboard XML in _raw. NOTE: this mangled value is for the DIFF only. The preview visualization needs the untouched data field, which is why the preview panel uses its own search rather than chaining off this one.```
 | rex mode=sed "s/^.*?data=\"//"
 | rex mode=sed "s/\", type=views[\s\S]*//"
 | eval _raw=replace(_raw,"\\\\(.)","\1")
@@ -272,7 +273,7 @@
       </table>
     </panel>
     <panel>
-      <title>Hidden — drilldown source (clean data field for preview viz)</title>
+      <title>Hidden: drilldown source (clean data field for preview viz)</title>
       <table>
         <search id="baseSearchPreview">
           <query>index="ko_history" source IN ($koType$) NOT source="ko_usage" title="$drilldownTitle$"
@@ -290,6 +291,8 @@
       <table>
         <search id="baseSearch">
           <query>index="ko_history" source IN ($koType$) NOT source="ko_usage"
+```WHAT: the hidden base every panel on this dashboard chains off. It unions the periodic backup snapshots with the DELETE/MOVE audit records and collapses them to one row per knowledge object, carrying that object's full version history. Usage events are excluded here and joined in separately where needed.```
+```TYPE: backup events carry a type field; audit events do not, so the type is derived from the audit source name. Both streams have to agree on type or the koType filter would drop every audit row.```
 | eval type=coalesce(type, case(match(source,"views_delete_audit"),"views",match(source,"reports_and_alerts_delete_audit"),"savedsearch",match(source,"macros_delete_audit"),"macro",match(source,"eventtypes_delete_audit"),"eventtype",match(source,"fieldextractions_delete_audit"),"fieldextraction",match(source,"lookups_delete_audit"),"lookup",match(source,"tags_delete_audit"),"tag"))
 | search type="$koTypeFilter$"
 | rex field=uri "\/en-\w\w\/splunkd\/__raw\/servicesNS\/.*?\/(?&lt;appName&gt;.+?)\/"

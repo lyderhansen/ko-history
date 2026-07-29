@@ -2,12 +2,14 @@ import React from 'react';
 import { SplunkThemeProvider } from '@splunk/themes';
 import { oneshot, upsertView, restoreView, upsertSavedSearch, viewExists, savedSearchExists, savedSearchUrl, listApps, viewUrl, previewUrl, splQuote, KO_INDEX, VIEW_SOURCES, REPORT_SOURCES, sourcesForClass, PREVIEW_APP, SLOT_BASELINE, SLOT_TARGET, restoreKO, koManagerUrl } from '../util/splunkRest';
 import { canRestoreClass } from '../util/koClass';
+import { parseMarker } from '../util/markerParse';
 import { versionSearchTerms } from '../util/versionSearchTerms';
 import { toLines, lineDiff } from '../util/diff';
-import { analyze, combineLevel } from '../util/heaviness';
+import { analyze } from '../util/heaviness';
 import { parseSchematic, diffSchematic } from '../util/schematic';
 import { startHighlightPoll, clearHighlights } from '../util/highlightInject';
 import SourceView from './SourceView';
+import { PAL, MONO, OpenIcon, Flag, Drawer, DrawerLead, Tabs, Seg, Notice, StatsList, kitStyles, FocusCtrl, HoverBtn, CostFlag, ProgressBar, SplCode } from './PanelKit';
 // VersionTimeline is intentionally unwired (kept in the repo for future use).
 
 // Inject spinner keyframes once into the document head.
@@ -41,42 +43,57 @@ function Spinner({ size = 13, color = 'rgba(200,204,208,0.7)' }) {
     );
 }
 
-const HEAVY_COLOR = { light: '#81c995', moderate: '#d6b35a', heavy: '#f85149' };
+// Upper bound on a versions fetch. Past this the request is aborted and the
+// panel shows a recoverable error with Retry, rather than spinning forever.
+const VERSIONS_TIMEOUT_MS = 30000;
+// Elapsed seconds before the loading row starts showing a counter.
+const ELAPSED_AFTER_S = 5;
 
-// Compact "run cost" chip from a heaviness analysis. `block` makes it a full-width
-// row (pane); inline otherwise (compare toolbar).
-function HeavyBadge({ a, label, block }) {
-    if (!a) return null;
-    const c = HEAVY_COLOR[a.level] || '#9aa0a6';
-    const detail = `${a.panels} panel${a.panels === 1 ? '' : 's'} · ${a.searches} search${a.searches === 1 ? '' : 'es'} · ${a.range.label}`;
-    const title = (a.flags.length ? a.flags.join(', ') + '. ' : '') + (a.note || '') || detail;
-    return (
-        <span
-            title={title}
-            style={{
-                display: block ? 'flex' : 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                width: block ? '100%' : undefined,
-                boxSizing: 'border-box',
-                padding: '3px 8px',
-                borderRadius: 4,
-                border: `1px solid ${c}`,
-                background: `${c}22`,
-                color: c,
-                fontSize: 11,
-                lineHeight: 1.3,
-            }}
-        >
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: c, flex: '0 0 auto' }} />
-            <b style={{ textTransform: 'uppercase', letterSpacing: 0.4 }}>{label ? `${label}: ` : ''}{a.level}</b>
-            <span style={{ color: '#c8ccd0', fontWeight: 400 }}>{detail}</span>
-        </span>
-    );
+// Quiet Focus small-button builders shared by the compare modal, CompareColumn,
+// and BlendView (all module-level functions, outside the WrapperApp closure —
+// they can't reach the panel's own btnPrimary/btnRestore builders, so these are
+// standalone equivalents at the small toolbar size: padding 5px 11px, 12px).
+const KIT = kitStyles();
+function btnPrimarySmall(enabled) {
+    return {
+        ...KIT.btnBase, width: 'auto', padding: '5px 11px', fontSize: 12,
+        background: enabled ? PAL.primaryBtn : PAL.field, color: enabled ? PAL.primaryBtnText : PAL.text3,
+        transition: 'background .12s, border-color .12s',
+    };
 }
+function btnRestoreSmall(enabled) {
+    return {
+        ...KIT.btnBase, width: 'auto', padding: '5px 11px', fontSize: 12,
+        background: enabled ? PAL.restoreBg : PAL.field, color: enabled ? PAL.restoreText : PAL.text3,
+        borderColor: enabled ? PAL.restoreBorder : 'transparent', transition: 'background .12s, border-color .12s',
+    };
+}
+// Ghost button for BlendView's zoom/align controls (ⓘ-notice-adjacent chrome,
+// not a primary/restore action). `active` lifts it slightly when the control
+// represents a non-default state (e.g. zoom !== 100%, alignment nudged).
+function ghostSmall(active) {
+    return {
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        background: active ? PAL.panel2 : 'transparent',
+        border: `1px solid ${active ? PAL.text3 : PAL.edge}`,
+        color: active ? PAL.text : PAL.text2,
+        borderRadius: 5, padding: '3px 9px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12,
+        transition: 'background .12s, border-color .12s, color .12s',
+    };
+}
+// In-iframe highlight colors — same tokens as the legend swatches, passed to
+// startHighlightPoll so overlay boxes and the legend can never drift apart.
+const HL_COLORS = {
+    added: { border: PAL.diffAdded, glow: PAL.diffAddedBg },
+    moved: { border: PAL.diffModified, glow: PAL.diffModifiedBg },
+    retitled: { border: PAL.diffModified, glow: PAL.diffModifiedBg },
+    removed: { border: PAL.diffRemoved, glow: PAL.diffRemovedBg },
+    changed: { border: PAL.diffModified, glow: PAL.diffModifiedBg },
+};
 
-// Clean sans-style monospace stack (no serif fallback) for code/diff areas.
-const MONO = 'ui-monospace, SFMono-Regular, "SF Mono", "Roboto Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace';
+// Mono font stack for code/diff areas — imported from PanelKit so the panel
+// and the compare/diff modals share exactly one definition (was two subtly
+// different stacks before).
 // Map a panel change kind to a show/hide group (added / modified / removed).
 const KIND_GROUP = { added: 'added', moved: 'modified', retitled: 'modified', removed: 'removed' };
 // Sans-serif stack for all prose/UI chrome (modals inherit serif from the page otherwise).
@@ -145,7 +162,7 @@ function versionsSplSavedSearch(title, appName) {
         `| search title=${splQuote(title)} ` +
         `| where appName=${splQuote(appName)} OR isnull(appName) ` +
         // backup rows -> "updated"; audit rows already carry method (DELETE/MOVE).
-        `| eval method=coalesce(method,if(isnotnull('search'),"updated","—")) ` +
+        `| eval method=coalesce(method,if(isnotnull('search'),"updated","–")) ` +
         `| eval epoch=_time ` +
         `| sort - epoch | head 200 ` +
         `| table epoch method user ${SS_FIELDS}`
@@ -259,7 +276,7 @@ const sameEpoch = (a, b) => Math.floor(Number(a)) === Math.floor(Number(b));
 
 function relTime(epoch) {
     const n = Number(epoch);
-    if (!n) return '—';
+    if (!n) return '–';
     let s = Math.floor(Date.now() / 1000 - n);
     if (s < 0) s = 0;
     if (s < 60) return `${s}s ago`;
@@ -317,8 +334,8 @@ function SavedSearchSummary({ ver, hideNote }) {
             <div style={head}>Latest version · config</div>
             {row('Status', <b style={{ color: disabled ? '#f85149' : '#81c995' }}>{disabled ? 'Disabled' : 'Enabled'}</b>)}
             {row('Type', prettySsType(f))}
-            {row('Schedule', scheduled ? (f.cron_schedule || '—') : 'Not scheduled')}
-            {isAlert ? row('Alert condition', (`${f.alert_comparator || ''} ${f.alert_threshold || ''}`).trim() || (f.alert_condition || '—')) : null}
+            {row('Schedule', scheduled ? (f.cron_schedule || '–') : 'Not scheduled')}
+            {isAlert ? row('Alert condition', (`${f.alert_comparator || ''} ${f.alert_threshold || ''}`).trim() || (f.alert_condition || '–')) : null}
             <div style={{ marginTop: 8 }}>
                 <div style={head}>Trigger actions</div>
                 {actions.length ? (
@@ -331,7 +348,15 @@ function SavedSearchSummary({ ver, hideNote }) {
             </div>
             <div style={{ marginTop: 10 }}>
                 <div style={head}>Search (SPL)</div>
-                <pre style={{ margin: 0, maxHeight: 180, overflow: 'auto', background: '#0e1116', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 4, padding: '8px 10px', fontFamily: MONO, fontSize: 12, color: '#d6dee7', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{f.search || '—'}</pre>
+                {f.search ? (
+                    <SplCode
+                        code={f.search}
+                        style={{ maxHeight: 180, overflow: 'auto', background: PAL.field,
+                            border: `1px solid ${PAL.edgeSoft}`, borderRadius: 6, padding: '8px 10px' }}
+                    />
+                ) : (
+                    <div style={{ color: PAL.text3, fontSize: 12 }}>No search string captured.</div>
+                )}
             </div>
             {hideNote ? null : (
                 <div style={{ marginTop: 12, background: 'rgba(138,180,248,0.1)', border: '1px solid rgba(138,180,248,0.4)', color: '#9bb8e8', borderRadius: 4, padding: '8px 10px', fontSize: 11, lineHeight: 1.5 }}>
@@ -448,34 +473,35 @@ function SavedSearchCompare({ title, baseVer, targetVer, onClose, onRestore }) {
     );
     const splChanged = splOps.some((o) => o.t !== 'eq');
 
-    const STATUS_COLOR = { added: '#46aa5a', removed: '#e0505a', changed: '#d6b35a', same: '#6b7177' };
-    const cell = { padding: '6px 8px', fontFamily: MONO, fontSize: 12, verticalAlign: 'top', borderTop: '1px solid rgba(255,255,255,0.07)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' };
-    const tabBtn = (t, label, n) => (
-        <button
-            type="button"
-            onClick={() => setTab(t)}
-            style={{ background: tab === t ? '#1a73e8' : 'transparent', color: '#e6e6e6', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 4, padding: '4px 12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}
-        >
-            {label}{n != null ? ` (${n})` : ''}
-        </button>
-    );
+    // Quiet Focus diff encoding — same tokens as the dashboard-compare legend
+    // (spec §6), so a saved-search field's status reads identically everywhere.
+    const STATUS_COLOR = { added: PAL.diffAdded, removed: PAL.diffRemoved, changed: PAL.diffModified, same: PAL.text3 };
+    const cell = { padding: '6px 8px', fontFamily: MONO, fontSize: 12, verticalAlign: 'top', borderTop: `1px solid ${PAL.edgeSoft}`, whiteSpace: 'pre-wrap', wordBreak: 'break-word' };
+    const baseOk = !!(baseVer && baseVer.isConfig);
+    const targetOk = !!(targetVer && targetVer.isConfig);
 
     return (
-        <Modal title={`Compare — ${title}`} onClose={onClose}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: '#0e1116', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                {tabBtn('fields', 'Field diff', changed.length)}
-                {tabBtn('spl', `${contentLabel} diff`)}
-                {tabBtn('cards', 'Cards')}
-                <span style={{ flex: 1 }} />
+        <Modal title={`Compare: ${title}`} onClose={onClose}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', background: PAL.panel, borderBottom: `1px solid ${PAL.edgeSoft}`, flexWrap: 'wrap' }}>
+                <Seg
+                    items={[
+                        ['fields', `Field diff (${changed.length})`],
+                        ['spl', `${contentLabel} diff`],
+                        ['cards', 'Cards'],
+                    ]}
+                    active={tab}
+                    onSelect={setTab}
+                />
                 {onRestore ? (
                     <React.Fragment>
-                        <span style={{ color: '#6b7177', fontSize: 11, marginRight: 2 }}>Restore:</span>
-                        <button type="button" title="Restore the older version" disabled={!(baseVer && baseVer.isConfig)} style={{ background: 'transparent', color: baseVer && baseVer.isConfig ? '#8ab4f8' : '#4a525c', border: `1px solid ${baseVer && baseVer.isConfig ? '#8ab4f8' : '#3c4043'}`, borderRadius: 4, padding: '4px 10px', cursor: baseVer && baseVer.isConfig ? 'pointer' : 'default', fontFamily: 'inherit', fontSize: 12 }} onClick={() => baseVer && baseVer.isConfig && onRestore('baseline')}>
+                        <span style={{ flex: 1 }} />
+                        <span style={{ color: PAL.text3, fontSize: 11.5, marginRight: 2 }}>Restore</span>
+                        <HoverBtn base={btnRestoreSmall(baseOk)} hover={{ background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }} disabled={!baseOk} title="Restore the older version" onClick={() => baseOk && onRestore('baseline')}>
                             ⟲ Older
-                        </button>
-                        <button type="button" title="Restore the newer version" disabled={!(targetVer && targetVer.isConfig)} style={{ background: 'transparent', color: targetVer && targetVer.isConfig ? '#81c995' : '#4a525c', border: `1px solid ${targetVer && targetVer.isConfig ? '#81c995' : '#3c4043'}`, borderRadius: 4, padding: '4px 10px', cursor: targetVer && targetVer.isConfig ? 'pointer' : 'default', fontFamily: 'inherit', fontSize: 12 }} onClick={() => targetVer && targetVer.isConfig && onRestore('target')}>
+                        </HoverBtn>
+                        <HoverBtn base={btnRestoreSmall(targetOk)} hover={{ background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }} disabled={!targetOk} title="Restore the newer version" onClick={() => targetOk && onRestore('target')}>
                             ⟲ Newer
-                        </button>
+                        </HoverBtn>
                     </React.Fragment>
                 ) : null}
             </div>
@@ -484,42 +510,48 @@ function SavedSearchCompare({ title, baseVer, targetVer, onClose, onRestore }) {
                 {tab === 'fields' ? (
                     <div>
                         {changed.length === 0 ? (
-                            <div style={{ color: '#81c995', fontSize: 13, marginBottom: 10 }}>✓ No field changes between these two versions.</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: PAL.text2, fontSize: 13, marginBottom: 10 }}>
+                                <span style={{ color: PAL.diffAdded, fontSize: 12 }}>✓</span> No field changes between these two versions.
+                            </div>
                         ) : null}
                         <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                             <thead>
-                                <tr style={{ fontSize: 11, color: '#9aa0a6', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                                <tr style={{ fontSize: 11, color: PAL.text3, letterSpacing: 0.4 }}>
                                     <th style={{ textAlign: 'left', padding: '4px 8px', width: '24%' }}>Field</th>
-                                    <th style={{ textAlign: 'left', padding: '4px 8px', width: '38%', color: '#8ab4f8' }}>Older</th>
-                                    <th style={{ textAlign: 'left', padding: '4px 8px', width: '38%', color: '#81c995' }}>Newer</th>
+                                    <th style={{ textAlign: 'left', padding: '4px 8px', width: '38%' }}>Older</th>
+                                    <th style={{ textAlign: 'left', padding: '4px 8px', width: '38%' }}>Newer</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {(showSame ? rows : changed).map((r) => (
                                     <tr key={r.k}>
-                                        <td style={{ ...cell, color: '#c8ccd0' }}>
+                                        <td style={{ ...cell, color: PAL.text2 }}>
                                             <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: STATUS_COLOR[r.status], marginRight: 6 }} />
                                             {r.k}
                                         </td>
-                                        <td style={{ ...cell, color: r.status === 'added' ? '#6b7177' : '#d6dee7', background: r.status !== 'same' ? 'rgba(224,80,90,0.07)' : 'transparent' }}>{ssNorm(r.a) || (r.status === 'added' ? '—' : '')}</td>
-                                        <td style={{ ...cell, color: r.status === 'removed' ? '#6b7177' : '#d6dee7', background: r.status !== 'same' ? 'rgba(70,170,90,0.08)' : 'transparent' }}>{ssNorm(r.b) || (r.status === 'removed' ? '—' : '')}</td>
+                                        <td style={{ ...cell, color: r.status === 'added' ? PAL.text3 : PAL.text, background: r.status !== 'same' ? PAL.diffRemovedBg : 'transparent' }}>{ssNorm(r.a) || (r.status === 'added' ? '–' : '')}</td>
+                                        <td style={{ ...cell, color: r.status === 'removed' ? PAL.text3 : PAL.text, background: r.status !== 'same' ? PAL.diffAddedBg : 'transparent' }}>{ssNorm(r.b) || (r.status === 'removed' ? '–' : '')}</td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
-                        <button type="button" onClick={() => setShowSame((s) => !s)} style={{ marginTop: 12, background: 'transparent', color: '#8ab4f8', border: '1px solid rgba(138,180,248,0.5)', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>
+                        <HoverBtn base={{ ...ghostSmall(showSame), marginTop: 12 }} hover={{ color: PAL.text, borderColor: PAL.text3 }} onClick={() => setShowSame((s) => !s)}>
                             {showSame ? 'Hide unchanged' : `Show unchanged (${rows.length - changed.length})`}
-                        </button>
+                        </HoverBtn>
                     </div>
                 ) : null}
 
                 {tab === 'spl' ? (
                     <div>
-                        {!splChanged ? <div style={{ color: '#81c995', fontSize: 13, marginBottom: 10 }}>✓ {contentLabel} is identical between these two versions.</div> : null}
-                        <pre style={{ margin: 0, fontFamily: MONO, fontSize: 12, lineHeight: 1.5, background: '#0e1116', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 4, padding: '10px 12px', overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                        {!splChanged ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: PAL.text2, fontSize: 13, marginBottom: 10 }}>
+                                <span style={{ color: PAL.diffAdded, fontSize: 12 }}>✓</span> {contentLabel} is identical between these two versions.
+                            </div>
+                        ) : null}
+                        <pre style={{ margin: 0, fontFamily: MONO, fontSize: 12, lineHeight: 1.5, background: PAL.field, border: `1px solid ${PAL.edge}`, borderRadius: 4, padding: '10px 12px', overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                             {splOps.map((o, i) => (
-                                <div key={i} style={{ background: o.t === 'add' ? 'rgba(70,170,90,0.14)' : o.t === 'del' ? 'rgba(224,80,90,0.14)' : 'transparent', color: o.t === 'add' ? '#9be0a8' : o.t === 'del' ? '#f0a6ad' : '#c8ccd0' }}>
-                                    <span style={{ color: '#6b7177', userSelect: 'none' }}>{o.t === 'add' ? '+ ' : o.t === 'del' ? '- ' : '  '}</span>{o.line || ' '}
+                                <div key={i} style={{ background: o.t === 'add' ? PAL.diffAddedBg : o.t === 'del' ? PAL.diffRemovedBg : 'transparent', color: o.t === 'add' ? PAL.diffAdded : o.t === 'del' ? PAL.diffRemoved : PAL.text2 }}>
+                                    <span style={{ color: PAL.text3, userSelect: 'none' }}>{o.t === 'add' ? '+ ' : o.t === 'del' ? '- ' : '  '}</span>{o.line || ' '}
                                 </div>
                             ))}
                         </pre>
@@ -528,12 +560,18 @@ function SavedSearchCompare({ title, baseVer, targetVer, onClose, onRestore }) {
 
                 {tab === 'cards' ? (
                     <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-                        <div style={{ flex: 1, minWidth: 0, border: '1px solid rgba(138,180,248,0.4)', borderRadius: 6, padding: '4px 12px 12px' }}>
-                            <div style={{ fontSize: 11, color: '#8ab4f8', textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 8 }}>Older · {fmtTime(baseVer._time)}</div>
+                        <div style={{ flex: 1, minWidth: 0, border: `1px solid ${PAL.edgeSoft}`, borderRadius: 6, padding: '4px 12px 12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 8 }}>
+                                <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', color: PAL.text3 }}>Older</span>
+                                <span style={{ fontFamily: MONO, fontSize: 11.5, color: PAL.text2, fontVariantNumeric: 'tabular-nums' }}>{fmtTime(baseVer._time)}</span>
+                            </div>
                             <KOSummary ver={baseVer} hideNote />
                         </div>
-                        <div style={{ flex: 1, minWidth: 0, border: '1px solid rgba(129,201,149,0.4)', borderRadius: 6, padding: '4px 12px 12px' }}>
-                            <div style={{ fontSize: 11, color: '#81c995', textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 8 }}>Newer · {fmtTime(targetVer._time)}</div>
+                        <div style={{ flex: 1, minWidth: 0, border: `1px solid ${PAL.edgeSoft}`, borderRadius: 6, padding: '4px 12px 12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 8 }}>
+                                <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', color: PAL.text3 }}>Newer</span>
+                                <span style={{ fontFamily: MONO, fontSize: 11.5, color: PAL.text2, fontVariantNumeric: 'tabular-nums' }}>{fmtTime(targetVer._time)}</span>
+                            </div>
                             <KOSummary ver={targetVer} hideNote />
                         </div>
                     </div>
@@ -559,15 +597,25 @@ export default function WrapperApp() {
     //  - main KO table click  -> selected KO (target = its latest version)
     //  - "Versions of ..." click -> baseline version
     const [sel, setSel] = React.useState(null); // {title, appName}
-    const [baselineEpoch, setBaselineEpoch] = React.useState(null);
+    const [selectedEpoch, setSelectedEpoch] = React.useState(null);
 
     const [versions, setVersions] = React.useState([]);
     const [versionsErr, setVersionsErr] = React.useState('');
     const [loadingVersions, setLoadingVersions] = React.useState(false);
+    // Seconds the in-flight versions fetch has been running (0 when idle).
+    const [versionsElapsed, setVersionsElapsed] = React.useState(0);
+    // True between a click inside the dashboard and the marker read that
+    // follows it, so the progress bar appears on click rather than after.
+    const [selPending, setSelPending] = React.useState(false);
     const [baselineMiss, setBaselineMiss] = React.useState(false);
     const [versionsFetchKey, setVersionsFetchKey] = React.useState(0); // bump to retry
     const [baseIdx, setBaseIdx] = React.useState(1);
     const [targetIdx, setTargetIdx] = React.useState(0);
+
+    // ── Quiet Focus panel UI state (presentation only) ──
+    const [paneTab, setPaneTab] = React.useState('compare'); // 'compare' | 'restore'
+    const [openFlag, setOpenFlag] = React.useState(null); // null | 'cost' | 'render'
+    const [swapHover, setSwapHover] = React.useState(false); // ⇅ swap button hover (contract .swap button:hover)
 
     const [approval, setApproval] = React.useState(null);
     const [compare, setCompare] = React.useState(null);
@@ -697,37 +745,18 @@ export default function WrapperApp() {
                     txt = doc.body.innerText || '';
                 }
 
-                // Primary parser: new 'kohist-sel:' machine line (0.1.103+).
-                // Fields are ⟪|⟫-separated with no human-readable labels.
-                // Fallback: old 'Selected:' ⟪|⟫ format so a stale dashboard XML
-                // with a new wrapper still works during partial upgrades.
-                // The trailing label was renamed baseline:→previous: in 0.1.84;
-                // accept either so a stale cached DS bundle still parses.
-                let m = txt.match(/kohist-sel:\s*(.+?)\s*⟪\|⟫\s*(.+?)\s*⟪\|⟫\s*(.+?)\s*⟪\|⟫\s*(.+?)\s*(?:\n|$)/);
-                if (!m) {
-                    // Legacy format fallback: "Selected: X ⟪|⟫ app: Y ⟪|⟫ [type: Z ⟪|⟫] (baseline|previous): T"
-                    m = txt.match(/Selected:\s*(.+?)\s*⟪\|⟫\s*app:\s*(.+?)\s*(?:⟪\|⟫\s*type:\s*(.+?)\s*)?⟪\|⟫\s*(?:baseline|previous):\s*(.+?)\s*(?:\n|$)/);
-                }
-                if (!m) return;
-                const title = m[1].trim();
-                const app = m[2].trim();
-                let koClass = (m[3] || 'dashboard').trim();
-                if (!koClass || koClass.charAt(0) === '$') koClass = 'dashboard';
-                // Sanitize epoch: strip any non-digit characters that may leak from
-                // markdown decorators (e.g. a stray '~' if the machine line was ever
-                // wrapped in tildes). Epoch is integer seconds — digits only.
-                const base = (m[4] || '').trim().replace(/[^\d]/g, '');
-                // Guard: reject if title or app are empty, contain '$' (raw unresolved
-                // token), or equal the neutral default placeholder ('—') set by the
-                // generator's token defaults for the pre-selection state.
-                if (!title || title.indexOf('$') !== -1 || title === '—') return;
-                if (!app || app.indexOf('$') !== -1 || app === '—') return;
-                const baseEpoch = /^\d/.test(base) ? base : null; // "$time$" until a version is picked
+                // Marker parsing lives in util/markerParse.js so this contract can
+                // be tested. It could not be before, and an empty epoch field, which
+                // is what EVERY first click on a KO emits, silently failed to parse:
+                // the selection was dropped and the user had to click again.
+                const parsed = parseMarker(txt);
+                if (!parsed) return;
+                const { title, appName: app, koClass, baseEpoch } = parsed;
                 const key = `${title}|${app}|${koClass}|${baseEpoch || ''}`;
                 if (key === lastSelRef.current) return;
                 lastSelRef.current = key;
                 setSel((prev) => (prev && prev.title === title && prev.appName === app && prev.koClass === koClass ? prev : { title, appName: app, koClass }));
-                setBaselineEpoch(baseEpoch);
+                setSelectedEpoch(baseEpoch);
             } catch (e) {
                 /* iframe not ready / transient */
             }
@@ -741,7 +770,13 @@ export default function WrapperApp() {
             // Clear any pending timers from the previous click before scheduling
             // a fresh batch — prevents unbounded growth in the effect-scoped array.
             timeouts.splice(0).forEach(clearTimeout);
+            // Immediate feedback: a click must change something in the panel now,
+            // not after the marker read resolves.
+            setSelPending(true);
             [200, 600, 1400].forEach((ms) => timeouts.push(setTimeout(readMarker, ms)));
+            // Self-limiting: if the click selected nothing new, no versions fetch
+            // starts, so drop the pending flag rather than leaving the bar up.
+            timeouts.push(setTimeout(() => setSelPending(false), 1700));
         };
 
         // (Re-)attach the click listener to the iframe document. The document
@@ -777,11 +812,52 @@ export default function WrapperApp() {
         };
     }, []);
 
+    // Tear down anything that describes the PREVIOUS KO the moment the selection
+    // changes.
+    //
+    // `compare` is a snapshot taken in doRender (slot URLs, labels, XML), but the
+    // modal's Restore buttons resolve versions[idx], sel.title and sel.appName
+    // from live state. The 5s marker heartbeat can change `sel` while the modal
+    // is open, and the two then describe different knowledge objects: the user
+    // sees dashboard X rendered and restores a version of dashboard Y. Closing
+    // the modal on selection change keeps the snapshot and the live state from
+    // ever disagreeing.
+    React.useEffect(() => {
+        setCompare(null);
+        setApproval(null);
+        setRunBase(false);
+        setRunTarget(false);
+        setHasBlended(false);
+        // A restore that is mid-flight or already finished has resolved its
+        // target app and name, so it is no longer at risk of following the
+        // selection. Keep it up: closing it would discard the "Created X in Y"
+        // confirmation the user needs. Only an unsubmitted form is dropped.
+        setRestore((prev) => (prev && (prev.busy || prev.done) ? prev : null));
+    }, [sel]);
+
     // Load versions when the selected KO changes.
     React.useEffect(() => {
         if (!sel) return undefined;
         let cancelled = false;
         const controller = new AbortController();
+        // Watchdog: bound the fetch so a slow instance ends in a readable error
+        // with Retry instead of a spinner that never resolves. `timedOut` keeps
+        // the message honest, since an unmount/reselect abort must stay silent.
+        let timedOut = false;
+        const watchdog = setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+        }, VERSIONS_TIMEOUT_MS);
+        // Elapsed seconds, surfaced after 5s so a slow search reads as slow.
+        const startedAt = Date.now();
+        setVersionsElapsed(0);
+        const ticker = setInterval(() => {
+            setVersionsElapsed(Math.round((Date.now() - startedAt) / 1000));
+        }, 1000);
+        const stopTimers = () => {
+            clearTimeout(watchdog);
+            clearInterval(ticker);
+        };
         setLoadingVersions(true);
         setVersionsErr('');
         setVersions([]);
@@ -799,6 +875,7 @@ export default function WrapperApp() {
                 : versionsSpl(sel.title, sel.appName);
         oneshot(spl, { signal: controller.signal })
             .then((rows) => {
+                stopTimers();
                 if (cancelled) return;
                 let processed;
                 if (isSavedC) {
@@ -829,38 +906,52 @@ export default function WrapperApp() {
                 setLoadingVersions(false);
             })
             .catch((e) => {
+                stopTimers();
                 // AbortError from cancelled cleanup is intentionally swallowed here.
                 if (cancelled) return;
-                setVersionsErr(String((e && e.message) || e));
+                setVersionsErr(timedOut
+                    ? `Still loading after ${Math.round(VERSIONS_TIMEOUT_MS / 1000)}s. The search may be slow on this instance.`
+                    : String((e && e.message) || e));
                 setLoadingVersions(false);
             });
         return () => {
             cancelled = true;
+            stopTimers();
             controller.abort();
         };
     }, [sel, versionsFetchKey]);
 
-    // Target = latest (the KO clicked in the main table). Reseed on KO change.
-    React.useEffect(() => {
-        if (versions.length) setTargetIdx(0);
-    }, [versions]);
-
-    // Baseline = the version clicked in the dashboard's "Versions of ..." table,
-    // else the previous version. Reseed when that selection changes.
+    // The version clicked in the dashboard's "Versions of ..." table is the one
+    // the user is INSPECTING, so it becomes the target (newer side) and the
+    // version immediately older becomes the baseline.
+    //
+    // This used to be inverted here: the same click was read as the baseline and
+    // compared against whatever was latest. The dashboard's own panels have
+    // always treated it as the target, so one click meant opposite things in the
+    // two surfaces, with neither saying which. Both now answer the same question:
+    // "what did this edit change?".
     React.useEffect(() => {
         if (!versions.length) return;
-        if (baselineEpoch) {
-            const f = versions.findIndex((v) => sameEpoch(v._time, baselineEpoch));
+        if (selectedEpoch) {
+            const f = versions.findIndex((v) => sameEpoch(v._time, selectedEpoch));
             setBaselineMiss(f < 0);
-            setBaseIdx(f >= 0 ? f : Math.min(1, versions.length - 1));
+            const t = f >= 0 ? f : 0;
+            setTargetIdx(t);
+            // versions is newest-first, so the next index is the older neighbour.
+            setBaseIdx(Math.min(t + 1, versions.length - 1));
         } else {
             setBaselineMiss(false);
+            setTargetIdx(0);
             setBaseIdx(versions.length > 1 ? 1 : 0);
         }
-    }, [versions, baselineEpoch]);
+    }, [versions, selectedEpoch]);
 
     // Restore defaults: location = origin (the selected KO's app + view id).
+    // Also reseeds the panel's own UI state (tab + open flag drawer) whenever
+    // the selected KO changes — presentation-only, no data semantics here.
     React.useEffect(() => {
+        setPaneTab('compare');
+        setOpenFlag(null);
         if (sel) {
             setRestoreApp(sel.appName || '');
             setRestoreName(sel.title || '');
@@ -921,7 +1012,7 @@ export default function WrapperApp() {
     const appOptions = React.useMemo(() => {
         const ids = apps.map((a) => a.id);
         const byId = {};
-        apps.forEach((a) => { byId[a.id] = a.label && a.label !== a.id ? `${a.id} — ${a.label}` : a.id; });
+        apps.forEach((a) => { byId[a.id] = a.label && a.label !== a.id ? `${a.id} · ${a.label}` : a.id; });
         const extra = [];
         if (sel && sel.appName && ids.indexOf(sel.appName) < 0) extra.push(sel.appName);
         if (restoreApp && ids.indexOf(restoreApp) < 0 && extra.indexOf(restoreApp) < 0) extra.push(restoreApp);
@@ -931,14 +1022,13 @@ export default function WrapperApp() {
     const baseVer = versions[baseIdx];
     const targetVer = versions[targetIdx];
     const restoreVer = versions[restoreIdx];
-    const ready = !!(baseVer && targetVer && baseIdx !== targetIdx);
+    const ready = !!(baseVer && targetVer); // same-version compare allowed (shows an empty diff)
     // True when the selected KO has exactly one captured snapshot: the two-sided
     // compare makes no sense — render a View mode instead.
     const singleVersion = versions.length === 1;
     // Saved searches can only be restored from a real config snapshot (an
     // audit-only DELETE/MOVE marker carries no SPL to write back).
     const restoreReady = !!(restoreVer && restoreApp && restoreName && (!restoreVer.ss || restoreVer.isConfig));
-    const restoreToOrigin = !!(sel && restoreApp === sel.appName && restoreName === sel.title);
     // v1.0: restore ships for dashboards + reports only (the 5 generic types
     // are captured/viewable but not yet restorable).
     const restoreAllowed = !!(sel && canRestoreClass(sel.koClass));
@@ -962,7 +1052,6 @@ export default function WrapperApp() {
     );
     const cmpBaseHeavy = React.useMemo(() => (compare ? analyze(compare.baseXml) : null), [compare]);
     const cmpTargetHeavy = React.useMemo(() => (compare ? analyze(compare.targetXml) : null), [compare]);
-    const cmpCombined = combineLevel(cmpBaseHeavy, cmpTargetHeavy);
 
     // Change lists for the live Visual overlays: which panels to box on each
     // rendered iframe. Target gets added/moved/retitled (new positions); baseline
@@ -995,7 +1084,13 @@ export default function WrapperApp() {
         if (!baseVer || !targetVer) return;
         setApproval({ busy: true, error: '' });
         const cb = String(Date.now());
-        Promise.all([upsertView(SLOT_BASELINE, baseVer.xml), upsertView(SLOT_TARGET, targetVer.xml)])
+        // View mode writes ONE slot. The approval prompt for a single-version KO
+        // promises exactly that, and writing the baseline slot too would make the
+        // prompt understate what the user just approved.
+        const writes = singleVersion
+            ? [upsertView(SLOT_TARGET, targetVer.xml)]
+            : [upsertView(SLOT_BASELINE, baseVer.xml), upsertView(SLOT_TARGET, targetVer.xml)];
+        Promise.all(writes)
             .then(() => {
                 setApproval(null);
                 setCmpTab('visual');
@@ -1003,7 +1098,10 @@ export default function WrapperApp() {
                 setRunTarget(false);
                 setHasBlended(false);
                 setCompare({
-                    baseUrl: previewUrl(SLOT_BASELINE, cb),
+                    // No baseline slot is written in View mode, so there is no URL
+                    // to hand out. Leaving a stale one here would render whatever
+                    // the previous comparison left in that slot.
+                    baseUrl: singleVersion ? null : previewUrl(SLOT_BASELINE, cb),
                     targetUrl: previewUrl(SLOT_TARGET, cb),
                     baseLabel: `${fmtTime(baseVer._time)} · ${baseVer.method || ''}`,
                     targetLabel: `${fmtTime(targetVer._time)} · ${targetVer.method || ''}`,
@@ -1075,18 +1173,59 @@ export default function WrapperApp() {
         flex: `0 0 ${PANE_W}px`,
         padding: '16px 18px',
         overflow: 'auto',
-        borderLeft: '1px solid rgba(255,255,255,0.15)',
-        background: '#0b0c10',
-        color: '#e6e6e6',
+        background: PAL.panel,
+        border: `1px solid ${PAL.edgeSoft}`,
+        borderRadius: 8,
+        color: PAL.text,
         fontFamily: 'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
         fontSize: 13,
         boxSizing: 'border-box',
     };
-    const lbl = { display: 'block', margin: '14px 0 4px', color: '#9aa0a6', fontSize: 11, letterSpacing: 0.4, textTransform: 'uppercase' };
-    const ctrl = { width: '100%', padding: '7px 9px', background: '#15171c', color: '#e6e6e6', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 4, fontSize: 13, boxSizing: 'border-box' };
-    const btn = (bg) => ({ background: bg, color: '#fff', border: 0, borderRadius: 4, padding: '9px 14px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' });
-    const tag = (xml) => (xml ? (isDsXml(xml) ? 'Dashboard Studio' : 'Simple XML') : '—');
-    const optLabel = (v, i) => `#${i + 1} · ${fmtTime(v._time)} · ${v.method || '—'}${i === 0 ? ' · latest' : ''}`;
+    // Quiet Focus panel kit: shared label/control styles + button builders
+    // (spec 2026-07-20-preview-compare-redesign-design.md). Every surface now
+    // uses these builders; the old raw-hex `btn(bg)` helper is gone.
+    const K = kitStyles();
+    const lbl = K.lbl;
+    const ctrl = K.ctrl;
+    // Field-label variants used only inside the panel body (contract .vrow/.rrow
+    // .lbl): no baked-in top margin for the first field in a section, a 12px
+    // top margin to reproduce the restore pane's flex gap between later fields.
+    // `lbl`/K.lbl above stays untouched — the restore-confirm modal still uses it.
+    const flbl = K.fieldLbl;
+    const flblGap = K.fieldLblGap;
+    const btnPrimary = (enabled) => ({ ...K.btnBase,
+        background: enabled ? PAL.primaryBtn : PAL.field, color: enabled ? PAL.primaryBtnText : PAL.text3,
+        transition: 'background .12s, border-color .12s' });
+    const btnSecondary = { ...K.btnBase, background: 'transparent', color: PAL.text, borderColor: PAL.edge,
+        transition: 'background .12s, border-color .12s' };
+    const btnRestore = (enabled) => ({ ...K.btnBase,
+        background: enabled ? PAL.restoreBg : PAL.field, color: enabled ? PAL.restoreText : PAL.text3,
+        borderColor: enabled ? PAL.restoreBorder : 'transparent', transition: 'background .12s, border-color .12s' });
+    // Destructive confirm (restore-over-existing). Deliberately distinct from
+    // btnRestore's amber: overwrite is the only irreversible action here, so it
+    // reads in the danger hue rather than borrowing the normal restore look.
+    const btnDanger = (enabled) => ({ ...K.btnBase,
+        background: enabled ? PAL.dangerBg : PAL.field, color: enabled ? PAL.danger : PAL.text3,
+        borderColor: enabled ? PAL.danger : 'transparent', transition: 'background .12s, border-color .12s' });
+    const btnGhost = { background: 'transparent', border: 'none', color: PAL.text2, cursor: 'pointer',
+        fontSize: 13, fontWeight: 500, padding: '6px 10px', fontFamily: 'inherit',
+        transition: 'background .12s, border-color .12s' };
+    // ⇅ swap control (contract `.swap button`) — smaller/tighter than btnGhost,
+    // resting text-3, hover lifts to text-2 with a quiet panel-2 background.
+    const btnSwap = { background: swapHover ? PAL.panel2 : 'transparent', border: 'none',
+        color: swapHover ? PAL.text2 : PAL.text3, cursor: 'pointer', fontSize: 11, fontWeight: 400,
+        padding: '2px 10px', borderRadius: 4, fontFamily: 'inherit', display: 'inline-flex',
+        gap: 5, alignItems: 'center', transition: 'background .12s, color .12s' };
+    const tag = (xml) => (xml ? (isDsXml(xml) ? 'Dashboard Studio' : 'Simple XML') : '–');
+    const optLabel = (v, i) => `#${i + 1} · ${fmtTime(v._time)} · ${v.method || '–'}${i === 0 ? ' · latest' : ''}`;
+    // Approval modal's slot data rows (spec §A) — same slots/versions the
+    // previous <li> markup rendered, just reshaped for the hairline-row idiom.
+    const approvalSlots = singleVersion
+        ? [{ name: SLOT_TARGET, role: '', when: targetVer ? fmtTime(targetVer._time) : '' }]
+        : [
+            { name: SLOT_BASELINE, role: 'older', when: baseVer ? fmtTime(baseVer._time) : '' },
+            { name: SLOT_TARGET, role: 'newer', when: targetVer ? fmtTime(targetVer._time) : '' },
+        ];
 
     return (
         <SplunkThemeProvider family="prisma" colorScheme="dark" density="comfortable">
@@ -1131,247 +1270,282 @@ export default function WrapperApp() {
                 {/* Right: preview/compare pane (collapsible) */}
                 {paneOpen ? (
                     <div style={panel}>
-                        {/* Header row: title+intro text take remaining space; Hide button is shrink:0
-                            so it can never overlap the text at any pane width. */}
-                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
+                        {/* Header row: title takes remaining space; Hide button is shrink:0 so it
+                            can never overlap the title at any pane width. */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 0 }}>
                             <div style={{ flex: 1, minWidth: 0 }}>
-                                <h3 style={{ margin: '0 0 4px' }}>Preview &amp; Compare</h3>
-                                <div style={{ color: '#9aa0a6', fontSize: 12 }}>
-                                    Click a KO in the dashboard (sets the <b style={{ color: '#81c995' }}>newer version</b>), then a row in
-                                    "Versions of…" (sets the <b style={{ color: '#8ab4f8' }}>older one</b>). Override below if needed.
-                                </div>
+                                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, letterSpacing: '-0.005em' }}>Preview &amp; Compare</h3>
                             </div>
-                            <button type="button" onClick={() => setPaneOpen(false)} title="Hide pane" style={{ ...btn('#2a2d31'), padding: '4px 10px', flexShrink: 0 }}>
+                            <HoverBtn base={{ ...btnGhost, flexShrink: 0 }} hover={{ color: PAL.text }} onClick={() => setPaneOpen(false)} title="Hide pane">
                                 Hide ›
-                            </button>
+                            </HoverBtn>
                         </div>
+                        <ProgressBar active={loadingVersions || selPending} />
 
                         {!sel ? (
-                            <div style={{ color: '#9aa0a6', marginTop: 12 }}>Click a KO row in the dashboard…</div>
+                            <div style={{ color: PAL.text2, marginTop: 12 }}>Click a KO row in the dashboard…</div>
                         ) : (
                             <div>
-                                <div style={{ fontSize: 11, color: '#9aa0a6', textTransform: 'uppercase', letterSpacing: 0.4 }}>Selected KO</div>
-                                <div style={{ margin: '4px 0 6px' }}>
-                                    <b>{sel.title}</b> <span style={{ color: '#9aa0a6' }}>({sel.appName})</span>
-                                    {targetVer ? <span style={{ color: '#9aa0a6' }}> · {isSaved ? prettySsType(targetVer.fields) : isGeneric ? prettyKoType(targetVer.fields) : tag(targetVer.xml)}</span> : null}
-                                    {/* Live KO link — dashboards only (a saved search has no view to open). */}
-                                    {sel.koClass === 'dashboard' ? (
-                                        <span> · <a href={viewUrl(sel.appName, sel.title)} target="_blank" rel="noopener noreferrer" title="Open the live dashboard in a new tab" style={{ color: '#8ab4f8', textDecoration: 'none' }}>Open ↗</a></span>
-                                    ) : null}
-                                </div>
-                                {selHeavy ? (
-                                    <div style={{ margin: '0 0 8px' }}>
-                                        <HeavyBadge a={selHeavy} label="Run cost" block />
-                                        {selHeavy.note ? <div style={{ color: '#9aa0a6', fontSize: 11, marginTop: 4 }}>{selHeavy.note}</div> : null}
+                                {/* KO identity card (spec §7): name / format·app / Open + flags,
+                                    with the heavy-run and showing-latest warnings as expandable
+                                    flag drawers (spec §8) instead of full-width colored boxes. */}
+                                <div style={K.koCard}>
+                                    <div style={{ padding: '12px 14px' }}>
+                                        <div style={{ ...K.mono, fontSize: 13, fontWeight: 500, wordBreak: 'break-all' }}>{sel.title}</div>
+                                        <div style={{ marginTop: 5, fontSize: 11.5, color: PAL.text2 }}>
+                                            {targetVer ? (isSaved ? prettySsType(targetVer.fields) : isGeneric ? prettyKoType(targetVer.fields) : tag(targetVer.xml)) : '–'} · {sel.appName}
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 16, flexWrap: 'nowrap', marginTop: 7, fontSize: 11.5, alignItems: 'center', whiteSpace: 'nowrap' }}>
+                                            {sel.koClass === 'dashboard' ? (
+                                                <a href={viewUrl(sel.appName, sel.title)} target="_blank" rel="noopener noreferrer" title="Open the live dashboard in a new tab"
+                                                   style={{ color: PAL.accentHi, textDecoration: 'none', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                                    <OpenIcon />Open
+                                                </a>
+                                            ) : null}
+                                            {selHeavy ? (
+                                                /* Level-tinted (spec: red is reserved for heavy runs —
+                                                   light/moderate no longer borrow the danger hue). */
+                                                <Flag
+                                                    color={selHeavy.level === 'heavy' ? PAL.danger : selHeavy.level === 'moderate' ? PAL.warn : PAL.text2}
+                                                    bg={selHeavy.level === 'heavy' ? PAL.dangerBg : selHeavy.level === 'moderate' ? PAL.warnBg : PAL.panel2}
+                                                    dot open={openFlag === 'cost'}
+                                                    onClick={() => setOpenFlag(openFlag === 'cost' ? null : 'cost')}>
+                                                    {selHeavy.level === 'heavy' ? 'heavy run' : selHeavy.level + ' run'}
+                                                </Flag>
+                                            ) : null}
+                                            {baselineMiss ? (
+                                                <Flag color={PAL.warn} bg={PAL.warnBg} open={openFlag === 'render'}
+                                                      onClick={() => setOpenFlag(openFlag === 'render' ? null : 'render')}>
+                                                    ⚠ showing latest
+                                                </Flag>
+                                            ) : null}
+                                        </div>
                                     </div>
-                                ) : null}
+                                    <Drawer open={openFlag === 'cost' && !!selHeavy}>
+                                        <DrawerLead tone={selHeavy && selHeavy.level === 'heavy' ? 'danger' : 'warn'}>Run cost: {selHeavy && selHeavy.level}.</DrawerLead>{' '}
+                                        {selHeavy ? `${selHeavy.panels} panels · ${selHeavy.searches} searches · ${selHeavy.range.label}. ` : ''}
+                                        {selHeavy && selHeavy.note ? selHeavy.note : 'Rendering this preview dispatches those searches.'}
+                                    </Drawer>
+                                    <Drawer open={openFlag === 'render' && baselineMiss}>
+                                        <DrawerLead tone="warn">Snapshot isn&apos;t renderable.</DrawerLead>{' '}
+                                        It may be an audit-only delete/move event, or older than the 200 most recent versions.
+                                        Showing the latest versions instead. <DrawerLead tone="warn">Verify the older version before restoring.</DrawerLead>
+                                    </Drawer>
+                                </div>
 
                                 {loadingVersions ? (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#9aa0a6', margin: '8px 0' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: PAL.text2, margin: '10px 0 0' }}>
                                         <Spinner />
-                                        Loading versions…
+                                        Loading versions
+                                        {versionsElapsed >= ELAPSED_AFTER_S ? (
+                                            <span style={{ color: PAL.text3, fontVariantNumeric: 'tabular-nums' }}>, {versionsElapsed}s</span>
+                                        ) : null}
                                     </div>
                                 ) : null}
                                 {versionsErr ? (
-                                    <div style={{ color: '#f85149', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                    <div style={{ color: PAL.danger, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
                                         <span>Versions error: {versionsErr}</span>
-                                        <button
-                                            type="button"
-                                            style={{ ...btn('#2a2d31'), padding: '3px 10px', fontSize: 12 }}
+                                        <HoverBtn
+                                            base={{ ...btnSecondary, width: 'auto', padding: '3px 10px', fontSize: 12 }}
+                                            hover={{ borderColor: PAL.text3 }}
                                             onClick={() => { lastSelRef.current = null; setVersionsFetchKey((k) => k + 1); }}
                                         >
                                             Retry
-                                        </button>
-                                    </div>
-                                ) : null}
-                                {baselineMiss ? (
-                                    <div style={{ marginTop: 8, background: 'rgba(214,179,90,0.12)', border: '1px solid rgba(214,179,90,0.5)', color: '#d6b35a', borderRadius: 4, padding: '8px 10px', fontSize: 11, lineHeight: 1.5 }}>
-                                        ⚠ The selected snapshot isn&apos;t in the renderable version list (it may be an audit-only delete/move event, or older than the 200 most recent versions). Showing the latest versions instead — <b>verify the older version before restoring.</b>
+                                        </HoverBtn>
                                     </div>
                                 ) : null}
 
                                 {versions.length ? (
                                     <div>
-                                        {singleVersion ? (
-                                            <div style={{ marginBottom: 10, fontSize: 12, color: '#9aa0a6', fontStyle: 'italic' }}>
-                                                Only one captured version — showing it directly.
-                                            </div>
-                                        ) : null}
+                                        <Tabs
+                                            tabs={[{ key: 'compare', label: singleVersion ? 'View' : 'Compare' }, { key: 'restore', label: 'Restore' }]}
+                                            active={paneTab}
+                                            onSelect={setPaneTab}
+                                        />
+                                        <div style={{ marginTop: 16 }}>
+                                            {paneTab === 'compare' ? (
+                                                <React.Fragment>
+                                                    {singleVersion ? (
+                                                        <div style={{ marginBottom: 10, fontSize: 12, color: PAL.text2, fontStyle: 'italic' }}>
+                                                            Only one captured version. Showing it directly.
+                                                        </div>
+                                                    ) : null}
 
-                                        {!singleVersion ? (
-                                            <React.Fragment>
-                                                <label style={{ ...lbl, color: '#81c995' }}>Newer version (override)</label>
-                                                <select style={ctrl} value={targetIdx} onChange={(e) => setTargetIdx(Number(e.target.value))}>
-                                                    {versions.map((v, i) => (
-                                                        <option key={i} value={i}>{optLabel(v, i)}</option>
-                                                    ))}
-                                                </select>
+                                                    {!singleVersion ? (
+                                                        <React.Fragment>
+                                                            <label style={flbl}>Newer version</label>
+                                                            <FocusCtrl as="select" style={ctrl} value={targetIdx} onChange={(e) => setTargetIdx(Number(e.target.value))}>
+                                                                {versions.map((v, i) => (
+                                                                    <option key={i} value={i}>{optLabel(v, i)}</option>
+                                                                ))}
+                                                            </FocusCtrl>
 
-                                                <label style={{ ...lbl, color: '#8ab4f8' }}>Older version (override)</label>
-                                                <select style={ctrl} value={baseIdx} onChange={(e) => setBaseIdx(Number(e.target.value))}>
-                                                    {versions.map((v, i) => (
-                                                        <option key={i} value={i}>{optLabel(v, i)}</option>
-                                                    ))}
-                                                </select>
-                                            </React.Fragment>
-                                        ) : null}
+                                                            <div style={{ display: 'flex', justifyContent: 'center', margin: '2px 0' }}>
+                                                                <button type="button" title="Swap newer and older" style={btnSwap}
+                                                                    onMouseEnter={() => setSwapHover(true)} onMouseLeave={() => setSwapHover(false)}
+                                                                    onClick={() => { const t = targetIdx; setTargetIdx(baseIdx); setBaseIdx(t); }}>
+                                                                    ⇅ swap
+                                                                </button>
+                                                            </div>
 
-                                        {isSaved ? (
-                                            /* Saved searches: compare two versions (cards + field/SPL diff,
-                                               #8) and a read-only summary of the target. Restore is #9. */
-                                            <React.Fragment>
-                                                {!singleVersion ? (
-                                                    <div style={{ marginTop: 12 }}>
-                                                        <button type="button" style={btn(ready ? '#1a73e8' : '#3c4043')} disabled={!ready} onClick={() => ready && setSsCompare(true)}>
-                                                            Compare ▸ older vs newer
-                                                        </button>
-                                                        {baseIdx === targetIdx ? (
-                                                            <div style={{ color: '#6b7177', marginTop: 6, fontSize: 11 }}>Pick two different versions.</div>
-                                                        ) : null}
-                                                    </div>
-                                                ) : null}
-                                                <SavedSearchSummary ver={targetVer} />
+                                                            <label style={flbl}>Older version</label>
+                                                            <FocusCtrl as="select" style={ctrl} value={baseIdx} onChange={(e) => setBaseIdx(Number(e.target.value))}>
+                                                                {versions.map((v, i) => (
+                                                                    <option key={i} value={i}>{optLabel(v, i)}</option>
+                                                                ))}
+                                                            </FocusCtrl>
+                                                        </React.Fragment>
+                                                    ) : null}
 
-                                                {/* ── Restore a saved-search version (config only; owner nobody) ── */}
-                                                <div style={{ marginTop: 18, borderTop: '1px solid rgba(255,255,255,0.12)', paddingTop: 12 }}>
-                                                    <div style={{ fontSize: 11, color: '#d6b35a', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>⟲ Restore a version</div>
-
-                                                    <label style={lbl}>Version to restore</label>
-                                                    <select style={ctrl} value={restoreIdx} onChange={(e) => setRestoreIdx(Number(e.target.value))}>
+                                                    {isSaved ? (
+                                                        /* Saved searches: compare two versions (cards + field/SPL diff,
+                                                           #8) and a read-only summary of the target. Restore is #9. */
+                                                        <React.Fragment>
+                                                            {!singleVersion ? (
+                                                                <div style={{ marginTop: 14 }}>
+                                                                    <HoverBtn base={btnPrimary(ready)} hover={{ background: PAL.primaryBtnHover }} disabled={!ready} onClick={() => ready && setSsCompare(true)}>
+                                                                        Compare
+                                                                    </HoverBtn>
+                                                                    {baseIdx === targetIdx ? (
+                                                                        <div style={{ color: PAL.text3, marginTop: 6, fontSize: 11 }}>Both sides are the same version. The diff will show no changes.</div>
+                                                                    ) : null}
+                                                                </div>
+                                                            ) : null}
+                                                            <SavedSearchSummary ver={targetVer} />
+                                                        </React.Fragment>
+                                                    ) : isGeneric ? (
+                                                        /* Generic non-dashboard KOs (macros + future types): compare two
+                                                           versions (cards + field/content diff) and a read-only summary.
+                                                           Restore for these types is a follow-up. */
+                                                        <React.Fragment>
+                                                            {!singleVersion ? (
+                                                                <div style={{ marginTop: 14 }}>
+                                                                    <HoverBtn base={btnPrimary(ready)} hover={{ background: PAL.primaryBtnHover }} disabled={!ready} onClick={() => ready && setSsCompare(true)}>
+                                                                        Compare
+                                                                    </HoverBtn>
+                                                                    {baseIdx === targetIdx ? (
+                                                                        <div style={{ color: PAL.text3, marginTop: 6, fontSize: 11 }}>Both sides are the same version. The diff will show no changes.</div>
+                                                                    ) : null}
+                                                                </div>
+                                                            ) : null}
+                                                            <GenericSummary ver={targetVer} />
+                                                        </React.Fragment>
+                                                    ) : (
+                                                        /* Dashboards: comparing/viewing writes into the scratch preview
+                                                           slot(s) (spec §9) — a quiet one-line notice replaces the old
+                                                           full-width amber boxes. */
+                                                        <React.Fragment>
+                                                            {!singleVersion ? (
+                                                                <React.Fragment>
+                                                                    <Notice>Comparing writes two scratch previews (<code style={{ ...K.mono, fontSize: 11.5 }}>kohist_cmp_*</code>) only. Your real KOs are never touched.</Notice>
+                                                                    <div style={{ marginTop: 14 }}>
+                                                                        <HoverBtn base={btnPrimary(ready)} hover={{ background: PAL.primaryBtnHover }} disabled={!ready} onClick={() => ready && setApproval({ busy: false, error: '' })}>
+                                                                            Compare
+                                                                        </HoverBtn>
+                                                                        {baseIdx === targetIdx ? (
+                                                                            <div style={{ color: PAL.text3, marginTop: 6, fontSize: 11 }}>Both sides are the same version. The diff will show no changes.</div>
+                                                                        ) : null}
+                                                                    </div>
+                                                                </React.Fragment>
+                                                            ) : (
+                                                                /* Single-version view mode: preview + source only */
+                                                                <React.Fragment>
+                                                                    <Notice>Viewing writes the snapshot into a scratch preview (<code style={{ ...K.mono, fontSize: 11.5 }}>kohist_cmp_*</code>) only. Your real dashboards are never touched.</Notice>
+                                                                    <div style={{ marginTop: 14 }}>
+                                                                        <HoverBtn base={btnPrimary(true)} hover={{ background: PAL.primaryBtnHover }} onClick={() => setApproval({ busy: false, error: '' })}>
+                                                                            View ›
+                                                                        </HoverBtn>
+                                                                    </div>
+                                                                </React.Fragment>
+                                                            )}
+                                                        </React.Fragment>
+                                                    )}
+                                                </React.Fragment>
+                                            ) : isSaved ? (
+                                                /* ── Restore a saved-search version (config only; owner nobody) ── */
+                                                <React.Fragment>
+                                                    <label style={flbl}>Version to restore</label>
+                                                    <FocusCtrl as="select" style={ctrl} value={restoreIdx} onChange={(e) => setRestoreIdx(Number(e.target.value))}>
                                                         {versions.map((v, i) => (
                                                             <option key={i} value={i} disabled={!v.isConfig}>{optLabel(v, i)}{v.isConfig ? '' : ' · (no config)'}</option>
                                                         ))}
-                                                    </select>
+                                                    </FocusCtrl>
 
-                                                    <label style={lbl}>Target app <span style={{ textTransform: 'none', color: '#6b7177' }}>(default: origin)</span></label>
-                                                    <select style={ctrl} value={restoreApp} onChange={(e) => setRestoreApp(e.target.value)}>
+                                                    <label style={flblGap}>Target app <span style={K.lblSub}>default: origin</span></label>
+                                                    <FocusCtrl as="select" style={ctrl} value={restoreApp} onChange={(e) => setRestoreApp(e.target.value)}>
                                                         {appOptions.map((a) => (
                                                             <option key={a.id} value={a.id}>{a.label}{a.id === (sel && sel.appName) ? ' (origin)' : ''}</option>
                                                         ))}
-                                                    </select>
+                                                    </FocusCtrl>
 
-                                                    <label style={lbl}>Search name</label>
-                                                    <input style={ctrl} value={restoreName} onChange={(e) => setRestoreName(e.target.value)} placeholder={sel.title} spellCheck={false} />
+                                                    <label style={flblGap}>Search name</label>
+                                                    <FocusCtrl as="input" style={ctrl} value={restoreName} onChange={(e) => setRestoreName(e.target.value)} placeholder={sel.title} spellCheck={false} />
 
-                                                    <div style={{ marginTop: 12 }}>
-                                                        <button type="button" style={btn(restoreReady && restoreAllowed ? '#b8860b' : '#3c4043')} disabled={!(restoreReady && restoreAllowed)} title="Restore this version" onClick={() => restoreReady && restoreAllowed && setRestore({ busy: false, error: '' })}>
-                                                            ⟲ Restore…
-                                                        </button>
-                                                        <div style={{ marginTop: 6, fontSize: 11, color: '#6b7177' }}>
-                                                            Writes config only · owner <b style={{ color: '#9aa0a6' }}>nobody</b> (app-shared) · sharing/owner not restored.
+                                                    <div style={{ marginTop: 14 }}>
+                                                        <HoverBtn base={btnRestore(restoreReady && restoreAllowed)} hover={{ background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }} disabled={!(restoreReady && restoreAllowed)} title="Restore this version" onClick={() => restoreReady && restoreAllowed && setRestore({ busy: false, error: '' })}>
+                                                            ⟲ Restore this version…
+                                                        </HoverBtn>
+                                                        <div style={{ marginTop: 6, fontSize: 11.5, color: PAL.text3 }}>
+                                                            Writes config only · owner <b style={{ color: PAL.text2 }}>nobody</b> (app-shared) · sharing/owner not restored.
                                                         </div>
                                                     </div>
-                                                </div>
-                                            </React.Fragment>
-                                        ) : isGeneric ? (
-                                            /* Generic non-dashboard KOs (macros + future types): compare two
-                                               versions (cards + field/content diff) and a read-only summary.
-                                               Restore for these types is a follow-up. */
-                                            <React.Fragment>
-                                                {!singleVersion ? (
-                                                    <div style={{ marginTop: 12 }}>
-                                                        <button type="button" style={btn(ready ? '#1a73e8' : '#3c4043')} disabled={!ready} onClick={() => ready && setSsCompare(true)}>
-                                                            Compare ▸ older vs newer
-                                                        </button>
-                                                        {baseIdx === targetIdx ? (
-                                                            <div style={{ color: '#6b7177', marginTop: 6, fontSize: 11 }}>Pick two different versions.</div>
-                                                        ) : null}
-                                                    </div>
-                                                ) : null}
-                                                <GenericSummary ver={targetVer} />
-                                                <div style={{ marginTop: 14, fontSize: 11, color: '#6b7177', borderTop: '1px solid rgba(255,255,255,0.12)', paddingTop: 10 }}>
+                                                </React.Fragment>
+                                            ) : isGeneric ? (
+                                                <div style={{ fontSize: 11.5, color: PAL.text3, lineHeight: 1.5 }}>
                                                     Restore for {prettyKoType(targetVer && targetVer.fields).toLowerCase()}s is coming. Version history, inspect, and compare are live.
                                                 </div>
-                                            </React.Fragment>
-                                        ) : (
-                                            <React.Fragment>
-                                                {/* Overwrite warning + compare button — hidden for single-version KOs */}
-                                                {!singleVersion ? (
-                                                    <React.Fragment>
-                                                        <div style={{ background: 'rgba(224,108,58,0.14)', border: '1px solid rgba(224,108,58,0.5)', color: '#e8a87c', borderRadius: 4, padding: '8px 10px', fontSize: 11, lineHeight: 1.5, marginTop: 14 }}>
-                                                            ⚠ Comparing <b>overwrites</b> the scratch preview dashboards
-                                                            {' '}<code>{SLOT_BASELINE}</code> and <code>{SLOT_TARGET}</code> in
-                                                            {' '}<code>{PREVIEW_APP}</code>. Your real KOs are never touched.
-                                                        </div>
-
-                                                        <div style={{ marginTop: 12 }}>
-                                                            <button type="button" style={btn(ready ? '#1a73e8' : '#3c4043')} disabled={!ready} onClick={() => ready && setApproval({ busy: false, error: '' })}>
-                                                                Compare ▸ older vs newer
-                                                            </button>
-                                                            {baseIdx === targetIdx ? (
-                                                                <div style={{ color: '#6b7177', marginTop: 6, fontSize: 11 }}>Pick two different versions.</div>
-                                                            ) : null}
-                                                        </div>
-                                                    </React.Fragment>
-                                                ) : (
-                                                    /* Single-version view mode: preview + source only */
-                                                    <div style={{ marginTop: 14 }}>
-                                                        <div style={{ background: 'rgba(224,108,58,0.14)', border: '1px solid rgba(224,108,58,0.5)', color: '#e8a87c', borderRadius: 4, padding: '8px 10px', fontSize: 11, lineHeight: 1.5, marginBottom: 10 }}>
-                                                            ⚠ Viewing writes the snapshot into the scratch preview slot <code>{SLOT_TARGET}</code> in <code>{PREVIEW_APP}</code>. Your real dashboards are never touched.
-                                                        </div>
-                                                        <button type="button" style={btn('#1a73e8')} onClick={() => setApproval({ busy: false, error: '' })}>
-                                                            View ›
-                                                        </button>
-                                                    </div>
-                                                )}
-
-                                                {/* ── Restore: recover a captured version into a real dashboard ── */}
-                                                <div style={{ marginTop: 18, borderTop: '1px solid rgba(255,255,255,0.12)', paddingTop: 12 }}>
-                                                    <div style={{ fontSize: 11, color: '#d6b35a', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>⟲ Restore a version</div>
-
-                                                    <label style={lbl}>Version to restore</label>
-                                                    <select style={ctrl} value={restoreIdx} onChange={(e) => setRestoreIdx(Number(e.target.value))}>
+                                            ) : (
+                                                /* ── Restore: recover a captured version into a real dashboard ── */
+                                                <React.Fragment>
+                                                    <label style={flbl}>Version to restore</label>
+                                                    <FocusCtrl as="select" style={ctrl} value={restoreIdx} onChange={(e) => setRestoreIdx(Number(e.target.value))}>
                                                         {versions.map((v, i) => (
                                                             <option key={i} value={i}>{optLabel(v, i)}</option>
                                                         ))}
-                                                    </select>
+                                                    </FocusCtrl>
 
-                                                    <label style={lbl}>Target app <span style={{ textTransform: 'none', color: '#6b7177' }}>(default: origin)</span></label>
-                                                    <select style={ctrl} value={restoreApp} onChange={(e) => setRestoreApp(e.target.value)}>
+                                                    <label style={flblGap}>Target app <span style={K.lblSub}>default: origin</span></label>
+                                                    <FocusCtrl as="select" style={ctrl} value={restoreApp} onChange={(e) => setRestoreApp(e.target.value)}>
                                                         {appOptions.map((a) => (
                                                             <option key={a.id} value={a.id}>{a.label}{a.id === (sel && sel.appName) ? ' (origin)' : ''}</option>
                                                         ))}
-                                                    </select>
+                                                    </FocusCtrl>
 
-                                                    <label style={lbl}>Dashboard name <span style={{ textTransform: 'none', color: '#6b7177' }}>(view id)</span></label>
-                                                    <input style={ctrl} value={restoreName} onChange={(e) => setRestoreName(e.target.value)} placeholder={sel.title} spellCheck={false} />
+                                                    <label style={flblGap}>Dashboard name <span style={K.lblSub}>view id</span></label>
+                                                    <FocusCtrl as="input" style={{ ...ctrl, ...K.mono, fontSize: 12.5 }} value={restoreName} onChange={(e) => setRestoreName(e.target.value)} placeholder={sel.title} spellCheck={false} />
 
-                                                    <div style={{ marginTop: 12 }}>
-                                                        <button type="button" style={btn(restoreReady && restoreAllowed ? '#b8860b' : '#3c4043')} disabled={!(restoreReady && restoreAllowed)} title="Restore this version" onClick={() => restoreReady && restoreAllowed && setRestore({ busy: false, error: '' })}>
-                                                            ⟲ Restore…
-                                                        </button>
-                                                        <div style={{ marginTop: 6, fontSize: 11, color: restoreToOrigin ? '#6b7177' : '#e8a87c' }}>
-                                                            {restoreToOrigin ? 'Restores to its original location.' : 'Restores to a different location than origin.'}
+                                                    <div style={{ marginTop: 14 }}>
+                                                        <HoverBtn base={btnRestore(restoreReady && restoreAllowed)} hover={{ background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }} disabled={!(restoreReady && restoreAllowed)} title="Restore this version" onClick={() => restoreReady && restoreAllowed && setRestore({ busy: false, error: '' })}>
+                                                            ⟲ Restore this version…
+                                                        </HoverBtn>
+                                                        <div style={{ marginTop: 10, fontSize: 11.5, color: PAL.text3, lineHeight: 1.5 }}>
+                                                            <b style={{ color: PAL.text2 }}>Nothing is written yet.</b> You&apos;ll see a summary (version, app, name)
+                                                            and confirm before the restore call is made. The object is live the moment it returns.
                                                         </div>
                                                     </div>
-                                                </div>
-                                            </React.Fragment>
-                                        )}
+                                                </React.Fragment>
+                                            )}
+                                        </div>
 
-                                        <div style={{ marginTop: 18, borderTop: '1px solid rgba(255,255,255,0.12)', paddingTop: 12 }}>
-                                            <div style={{ fontSize: 11, color: '#9aa0a6', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>This KO</div>
-                                            {[
-                                                ['Last edited', latest ? relTime(latest._time) : '—'],
+                                        <div style={{ marginTop: 18, borderTop: `1px solid ${PAL.edgeSoft}` }}>
+                                            <div style={{ ...K.lbl, margin: '14px 0 4px' }}>This KO</div>
+                                            <StatsList rows={[
+                                                ['Last edited', latest ? relTime(latest._time) : '–'],
                                                 ['Versions tracked', `${versions.length}${distinctCount !== versions.length ? ` · ${distinctCount} distinct` : ''}`],
-                                                ['First captured', oldest ? fmtTime(oldest._time) : '—'],
-                                                ['Tracked span', latest && oldest ? durStr(latest._time - oldest._time) : '—'],
+                                                ['First captured', oldest ? fmtTime(oldest._time) : '–'],
+                                                ['Tracked span', latest && oldest ? durStr(latest._time - oldest._time) : '–'],
+                                                ['Previous ⇄ latest gap', baseVer && targetVer ? durStr(Math.abs(targetVer._time - baseVer._time)) : '–'],
                                                 isFieldsKO
-                                                    ? ['Latest content size', (() => { const c = latest && koContentField(latest.fields); return c ? `${(c.value.length / 1024).toFixed(1)} KB` : '—'; })()]
-                                                    : ['Latest size', latest && latest.xml ? `${Math.round(latest.xml.length / 1024)} KB` : '—'],
+                                                    ? ['Latest content size', (() => { const c = latest && koContentField(latest.fields); return c ? `${(c.value.length / 1024).toFixed(1)} KB` : '–'; })()]
+                                                    : ['Latest size', latest && latest.xml ? `${Math.round(latest.xml.length / 1024)} KB` : '–'],
                                                 isFieldsKO
-                                                    ? ['Type', latest ? (isSaved ? prettySsType(latest.fields) : prettyKoType(latest.fields)) : '—']
-                                                    : ['Format', latest ? (isDsXml(latest.xml) ? 'Dashboard Studio' : 'Simple XML') : '—'],
-                                                ['Older ⇄ newer gap', baseVer && targetVer ? durStr(Math.abs(targetVer._time - baseVer._time)) : '—'],
-                                            ].map(([k, v]) => (
-                                                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '5px 0', fontSize: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                                                    <span style={{ color: '#9aa0a6' }}>{k}</span>
-                                                    <span style={{ textAlign: 'right' }}>{v}</span>
-                                                </div>
-                                            ))}
+                                                    ? ['Type', latest ? (isSaved ? prettySsType(latest.fields) : prettyKoType(latest.fields)) : '–']
+                                                    : ['Format', latest ? (isDsXml(latest.xml) ? 'Dashboard Studio' : 'Simple XML') : '–'],
+                                            ]} />
                                         </div>
                                     </div>
                                 ) : !loadingVersions && !versionsErr ? (
-                                    <div style={{ color: '#9aa0a6' }}>No renderable snapshots for this KO.</div>
+                                    <div style={{ color: PAL.text2 }}>No renderable snapshots for this KO.</div>
                                 ) : null}
                             </div>
                         )}
@@ -1380,146 +1554,207 @@ export default function WrapperApp() {
             </div>
 
             {approval ? (
-                <Modal title={singleVersion ? '⚠ Write preview slot & render?' : '⚠ Overwrite preview dashboards & render?'} onClose={approval.busy ? null : () => setApproval(null)}>
-                    <div style={{ padding: 20, color: '#e6e6e6', fontSize: 13, lineHeight: 1.6, overflow: 'auto' }}>
+                <Modal title={singleVersion ? 'Write preview slot & render?' : 'Overwrite preview dashboards & render?'} onClose={approval.busy ? null : () => setApproval(null)}>
+                    <div style={{ padding: '16px 18px 18px', color: PAL.text, fontSize: 13, lineHeight: 1.6, overflow: 'auto' }}>
                         {singleVersion ? (
-                            <React.Fragment>
-                                <div style={{ background: 'rgba(224,108,58,0.14)', border: '1px solid rgba(224,108,58,0.5)', color: '#e8a87c', borderRadius: 4, padding: '10px 12px', marginBottom: 14 }}>
-                                    ⚠ This writes the snapshot into the scratch preview slot <code>{SLOT_TARGET}</code> in the <code>{PREVIEW_APP}</code> app, then renders it. This slot exists only for previewing — <b>your real dashboards are never touched.</b>
-                                </div>
-                                <ul>
-                                    <li><code>{SLOT_TARGET}</code> ← {targetVer ? fmtTime(targetVer._time) : ''}</li>
-                                </ul>
-                            </React.Fragment>
+                            <Notice warn>
+                                This writes the snapshot into the scratch preview slot <code style={{ ...K.mono, fontSize: 11.5 }}>{SLOT_TARGET}</code> in <code style={{ ...K.mono, fontSize: 11.5 }}>{PREVIEW_APP}</code>,
+                                then renders it. This slot exists only for previewing. <b>Your real dashboards are never touched.</b>
+                            </Notice>
                         ) : (
-                            <React.Fragment>
-                                <div style={{ background: 'rgba(224,108,58,0.14)', border: '1px solid rgba(224,108,58,0.5)', color: '#e8a87c', borderRadius: 4, padding: '10px 12px', marginBottom: 14 }}>
-                                    ⚠ This <b>overwrites</b> two scratch preview views in the <code>{PREVIEW_APP}</code> app
-                                    (<code>{SLOT_BASELINE}</code>, <code>{SLOT_TARGET}</code>) with the selected versions, then
-                                    renders them. These slots exist only for previewing — <b>your real dashboards are never touched.</b>
-                                </div>
-                                <ul>
-                                    <li><code>{SLOT_BASELINE}</code> ← older · {baseVer ? fmtTime(baseVer._time) : ''}</li>
-                                    <li><code>{SLOT_TARGET}</code> ← newer · {targetVer ? fmtTime(targetVer._time) : ''}</li>
-                                </ul>
-                            </React.Fragment>
+                            <Notice warn>
+                                This <b>overwrites</b> two scratch preview views in <code style={{ ...K.mono, fontSize: 11.5 }}>{PREVIEW_APP}</code> with
+                                the selected versions, then renders them. These slots exist only for previewing. <b>Your real dashboards are never touched.</b>
+                            </Notice>
                         )}
-                        {approval.error ? <div style={{ color: '#f85149', marginTop: 8 }}>Error: {approval.error}</div> : null}
-                        <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
-                            <button type="button" style={{ ...btn('#1a73e8'), display: 'inline-flex', alignItems: 'center', gap: 6 }} disabled={approval.busy} onClick={doRender}>
-                                {approval.busy ? <><Spinner size={12} color="#fff" /> Rendering…</> : 'Approve & Render'}
-                            </button>
-                            <button type="button" style={btn('#3c4043')} disabled={approval.busy} onClick={() => setApproval(null)}>
+                        <div style={{ marginTop: 14, borderTop: `1px solid ${PAL.edgeSoft}` }}>
+                            {approvalSlots.map(({ name, role, when }) => (
+                                <div key={name} style={{ display: 'flex', justifyContent: 'space-between', gap: 16,
+                                    padding: '8px 0', borderBottom: `1px solid ${PAL.edgeSoft}`, fontSize: 12.5 }}>
+                                    <span>
+                                        <span style={{ ...K.mono, fontSize: 12, color: PAL.text }}>{name}</span>
+                                        {role ? <span style={{ color: PAL.text3, fontSize: 11.5 }}> · {role}</span> : null}
+                                    </span>
+                                    <span style={{ ...K.mono, fontSize: 12, color: PAL.text2, fontVariantNumeric: 'tabular-nums' }}>{when}</span>
+                                </div>
+                            ))}
+                        </div>
+                        {approval.error ? <div style={{ color: PAL.danger, marginTop: 8 }}>Error: {approval.error}</div> : null}
+                        <div style={{ marginTop: 18, display: 'flex', gap: 10 }}>
+                            <HoverBtn base={{ ...btnPrimary(true), width: 'auto' }} hover={{ background: PAL.primaryBtnHover }} disabled={approval.busy} onClick={doRender}>
+                                {approval.busy ? <><Spinner size={12} color={PAL.primaryBtnText} /> Rendering…</> : 'Approve & render'}
+                            </HoverBtn>
+                            <HoverBtn base={{ ...btnSecondary, width: 'auto' }} hover={{ borderColor: PAL.text3 }} disabled={approval.busy} onClick={() => setApproval(null)}>
                                 Cancel
-                            </button>
+                            </HoverBtn>
                         </div>
                     </div>
                 </Modal>
             ) : null}
 
             {restore ? (
-                <Modal title={isSaved ? '⟲ Restore saved search' : '⟲ Restore dashboard'} zIndex={1100} onClose={restore.busy ? null : () => setRestore(null)}>
-                    <div style={{ padding: 20, color: '#e6e6e6', fontSize: 13, lineHeight: 1.6, overflow: 'auto' }}>
+                <Modal
+                    title={isSaved ? 'Restore saved search' : isGeneric ? `Restore ${(sel && sel.koClass) || 'object'}` : 'Restore dashboard'}
+                    zIndex={1100}
+                    onClose={restore.busy ? null : () => setRestore(null)}
+                >
+                    <div style={{ padding: '16px 18px 18px', color: PAL.text, fontSize: 13, lineHeight: 1.6, overflow: 'auto' }}>
                         {restore.done ? (
                             <div>
-                                <div style={{ background: 'rgba(46,160,67,0.16)', border: '1px solid rgba(46,160,67,0.5)', color: '#81c995', borderRadius: 4, padding: '10px 12px', marginBottom: 14 }}>
-                                    ✓ {restore.done.created ? 'Created' : 'Overwrote'} <b>{restore.done.name}</b> in app <b>{restore.done.app}</b>
-                                    {restore.done.ss ? <span> · owner <b>nobody</b> (app-shared)</span> : null}.
+                                <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: PAL.diffAddedBg,
+                                    border: `1px solid ${PAL.diffAdded}`, borderRadius: 6, padding: '10px 12px',
+                                    marginBottom: 16, fontSize: 12.5, lineHeight: 1.5 }}>
+                                    <span aria-hidden="true" style={{ flex: '0 0 auto', color: PAL.diffAdded }}>✓</span>
+                                    <span>
+                                        {restore.done.created ? 'Created' : 'Overwrote'}{' '}
+                                        <code style={{ ...K.mono, fontSize: 12 }}>{restore.done.name}</code> in app{' '}
+                                        <code style={{ ...K.mono, fontSize: 12 }}>{restore.done.app}</code>
+                                        {restore.done.ss ? <span style={{ color: PAL.text2 }}> · owner <b>nobody</b> (app-shared)</span> : null}
+                                    </span>
                                 </div>
-                                <div style={{ display: 'flex', gap: 10 }}>
-                                    <a href={restore.done.url} target="_blank" rel="noreferrer" style={{ ...btn('#1a73e8'), textDecoration: 'none', display: 'inline-block' }}>
-                                        {restore.done.ss ? 'Open saved search ↗' : restore.done.gen ? 'Open in Settings ↗' : 'Open dashboard ↗'}
+                                <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                                    <a href={restore.done.url} target="_blank" rel="noopener noreferrer"
+                                       style={{ color: PAL.accentHi, textDecoration: 'none', fontWeight: 500, fontSize: 12.5,
+                                           display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                        <OpenIcon />{restore.done.ss ? 'Open saved search' : restore.done.gen ? 'Open in Settings' : 'Open dashboard'}
                                     </a>
-                                    <button type="button" style={btn('#3c4043')} onClick={() => setRestore(null)}>Done</button>
+                                    <HoverBtn base={{ ...btnSecondary, width: 'auto', marginLeft: 'auto' }} hover={{ borderColor: PAL.text3 }} onClick={() => setRestore(null)}>
+                                        Done
+                                    </HoverBtn>
                                 </div>
                             </div>
                         ) : (
                             <div style={{ maxWidth: 560 }}>
-                                <div style={{ marginBottom: 12 }}>
-                                    Restoring version <b>{restoreVer ? fmtTime(restoreVer._time) : ''}</b>
-                                    {restoreVer ? <span style={{ color: '#9aa0a6' }}> · {restoreVer.method || '—'} · {isSaved ? prettySsType(restoreVer.fields) : isGeneric ? prettyKoType(restoreVer.fields) : tag(restoreVer.xml)}</span> : null}
-                                    {sel ? <div style={{ color: '#9aa0a6', fontSize: 12 }}>Origin: {sel.title} ({sel.appName})</div> : null}
+                                {/* Version being restored, read as data: the values a user must
+                                    trust (timestamp, origin object) are mono and aligned. */}
+                                <div style={{ background: PAL.panel2, borderRadius: 6, padding: '10px 12px', fontSize: 12.5 }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+                                        <span style={{ color: PAL.text3 }}>Version to restore</span>
+                                        <span style={{ ...K.mono, color: PAL.text, fontVariantNumeric: 'tabular-nums' }}>
+                                            {restoreVer ? fmtTime(restoreVer._time) : ''}
+                                        </span>
+                                    </div>
+                                    {restoreVer ? (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginTop: 5 }}>
+                                            <span style={{ color: PAL.text3 }}>Captured as</span>
+                                            <span style={{ color: PAL.text2 }}>
+                                                {restoreVer.method || '–'} · {isSaved ? prettySsType(restoreVer.fields) : isGeneric ? prettyKoType(restoreVer.fields) : tag(restoreVer.xml)}
+                                            </span>
+                                        </div>
+                                    ) : null}
+                                    {sel ? (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginTop: 5 }}>
+                                            <span style={{ color: PAL.text3 }}>Origin</span>
+                                            <span style={{ ...K.mono, color: PAL.text2, wordBreak: 'break-all', textAlign: 'right' }}>
+                                                {sel.title} ({sel.appName})
+                                            </span>
+                                        </div>
+                                    ) : null}
                                 </div>
 
-                                <label style={lbl}>Target app <span style={{ textTransform: 'none', color: '#6b7177' }}>(default: origin)</span></label>
+                                <label style={lbl}>Target app <span style={K.lblSub}>(default: origin)</span></label>
                                 {appsLoadErr ? (
-                                    <div style={{ color: '#9aa0a6', fontSize: 11, marginBottom: 4 }}>Couldn&apos;t load the app list — you can still type an app name below.</div>
+                                    <Notice inline>Could not load the app list. You can still type an app name below.</Notice>
                                 ) : null}
-                                <select style={ctrl} value={restoreApp} onChange={(e) => { setRestoreApp(e.target.value); }}>
+                                <FocusCtrl as="select" style={ctrl} value={restoreApp} onChange={(e) => { setRestoreApp(e.target.value); }}>
                                     {appOptions.map((a) => (
                                         <option key={a.id} value={a.id}>{a.label}{a.id === (sel && sel.appName) ? ' (origin)' : ''}</option>
                                     ))}
-                                </select>
+                                </FocusCtrl>
 
-                                <label style={lbl}>{isSaved ? 'Search name' : isGeneric ? 'Object name' : <span>Dashboard name <span style={{ textTransform: 'none', color: '#6b7177' }}>(view id)</span></span>}</label>
-                                <input style={ctrl} value={restoreName} onChange={(e) => { setRestoreName(e.target.value); }} spellCheck={false} />
+                                <label style={lbl}>{isSaved ? 'Search name' : isGeneric ? 'Object name' : <span>Dashboard name <span style={K.lblSub}>(view id)</span></span>}</label>
+                                <FocusCtrl as="input" style={ctrl} value={restoreName} onChange={(e) => { setRestoreName(e.target.value); }} spellCheck={false} />
 
                                 {/* Live name-availability indicator */}
                                 {restoreApp && restoreName ? (
                                     restoreNameExists === null ? (
-                                        <div style={{ marginTop: 6, fontSize: 11, color: '#9aa0a6', display: 'flex', alignItems: 'center', gap: 5 }}><Spinner size={11} /> Checking…</div>
+                                        <div style={{ marginTop: 6, fontSize: 11.5, color: PAL.text3, display: 'flex', alignItems: 'center', gap: 5 }}><Spinner size={11} /> Checking</div>
                                     ) : restoreNameExists ? (
-                                        <div style={{ marginTop: 6, fontSize: 11, color: '#d6b35a' }}>
-                                            ⚠ <b><code>{restoreName}</code></b> already exists in app <b><code>{restoreApp}</code></b>
+                                        <div style={{ marginTop: 6, fontSize: 11.5, color: PAL.warn, display: 'flex', alignItems: 'center', gap: 5 }}>
+                                            <span aria-hidden="true">⚠</span>
+                                            <span><code style={{ ...K.mono, fontSize: 11.5 }}>{restoreName}</code> already exists in app <code style={{ ...K.mono, fontSize: 11.5 }}>{restoreApp}</code></span>
                                         </div>
                                     ) : (
-                                        <div style={{ marginTop: 6, fontSize: 11, color: '#81c995' }}>
-                                            ✓ Name available in <b><code>{restoreApp}</code></b>
+                                        <div style={{ marginTop: 6, fontSize: 11.5, color: PAL.text2, display: 'flex', alignItems: 'center', gap: 5 }}>
+                                            <span aria-hidden="true" style={{ color: PAL.diffAdded }}>✓</span>
+                                            <span>Name available in <code style={{ ...K.mono, fontSize: 11.5 }}>{restoreApp}</code></span>
                                         </div>
                                     )
                                 ) : null}
 
                                 {isSaved ? (
-                                    <div style={{ background: 'rgba(138,180,248,0.08)', border: '1px solid rgba(138,180,248,0.3)', color: '#9bb8e8', borderRadius: 4, padding: '8px 10px', margin: '14px 0', fontSize: 11, lineHeight: 1.5 }}>
-                                        Writes a <b>real saved search</b> as owner <b>nobody</b> (app-shared). Sharing/owner ACLs are <b>not</b> restored. You need write access to the target app.
-                                    </div>
+                                    <Notice>
+                                        Writes a <b>real saved search</b> as owner <b>nobody</b> (app-shared). Sharing and owner ACLs are <b>not</b> restored. You need write access to the target app.
+                                    </Notice>
                                 ) : isGeneric ? (
-                                    <div style={{ background: 'rgba(138,180,248,0.08)', border: '1px solid rgba(138,180,248,0.3)', color: '#9bb8e8', borderRadius: 4, padding: '8px 10px', margin: '14px 0', fontSize: 11, lineHeight: 1.5 }}>
-                                        Writes a <b>real {sel ? sel.koClass : 'object'}</b> as owner <b>nobody</b> (app-shared). Sharing/owner ACLs are <b>not</b> restored. You need write access to the target app.
+                                    <div>
+                                        <Notice>
+                                            Writes a <b>real {sel ? sel.koClass : 'object'}</b> as owner <b>nobody</b> (app-shared). Sharing and owner ACLs are <b>not</b> restored. You need write access to the target app.
+                                        </Notice>
                                         {sel && sel.koClass === 'lookup' ? (
-                                            <div style={{ color: '#e8c66a', marginTop: 6 }}>⚠ Restores the lookup <b>definition</b> only — the underlying .csv / KV-store <b>data is not versioned</b> and will not be restored.</div>
+                                            <Notice warn>
+                                                Restores the lookup <b>definition</b> only. The underlying .csv or KV-store <b>data is not versioned</b> and will not be restored.
+                                            </Notice>
                                         ) : null}
                                         {sel && sel.koClass === 'tag' ? (
-                                            <div style={{ color: '#e8c66a', marginTop: 6 }}>⚠ Re-enables the captured tags on this <code>field=value</code> pair; tags added live since the snapshot are <b>not</b> removed.</div>
+                                            <Notice warn>
+                                                Re-enables the captured tags on this <code style={{ ...K.mono, fontSize: 11.5 }}>field=value</code> pair. Tags added live since the snapshot are <b>not</b> removed.
+                                            </Notice>
                                         ) : null}
                                     </div>
                                 ) : (
-                                    <div style={{ background: 'rgba(138,180,248,0.08)', border: '1px solid rgba(138,180,248,0.3)', color: '#9bb8e8', borderRadius: 4, padding: '8px 10px', margin: '14px 0', fontSize: 11, lineHeight: 1.5 }}>
+                                    <Notice>
                                         Writes a <b>real dashboard</b> into Splunk. You need write access to the target app.
-                                    </div>
+                                    </Notice>
                                 )}
-                                {restore.error ? <div style={{ color: '#f85149', marginTop: 8 }}>Error: {restore.error}</div> : null}
+                                {restore.error ? <div style={{ color: PAL.danger, marginTop: 10, fontSize: 12.5 }}>Error: {restore.error}</div> : null}
 
                                 {/* Two-step overwrite guard: when the target exists, block the normal
                                     confirm path and require an explicit separate "Overwrite" click. */}
                                 {restoreNameExists && !restoreOverwrite ? (
-                                    <div>
-                                        <div style={{ background: 'rgba(214,179,90,0.12)', border: '1px solid rgba(214,179,90,0.5)', color: '#d6b35a', borderRadius: 4, padding: '10px 12px', marginBottom: 10, fontSize: 12, lineHeight: 1.5 }}>
-                                            ⚠ <b><code>{restoreName}</code></b> already exists in <b><code>{restoreApp}</code></b>. Restoring will permanently overwrite its current content. This cannot be undone (unless KO History has a snapshot of it too).
+                                    <div style={{ marginTop: 14 }}>
+                                        {/* Genuine caution: this one stays a full box rather than a
+                                            quiet Notice, because it is the only irreversible action
+                                            in the wrapper. */}
+                                        <div style={{ background: PAL.warnBg, border: `1px solid ${PAL.warn}`, color: PAL.warn,
+                                            borderRadius: 6, padding: '10px 12px', marginBottom: 12, fontSize: 12.5, lineHeight: 1.5,
+                                            display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                                            <span aria-hidden="true" style={{ flex: '0 0 auto' }}>⚠</span>
+                                            <span>
+                                                <code style={{ ...K.mono, fontSize: 12 }}>{restoreName}</code> already exists in <code style={{ ...K.mono, fontSize: 12 }}>{restoreApp}</code>.
+                                                Restoring will permanently overwrite its current content. This cannot be undone, unless KO History has a snapshot of it too.
+                                            </span>
                                         </div>
                                         <div style={{ display: 'flex', gap: 10 }}>
-                                            <button
-                                                type="button"
-                                                style={{ background: '#7a1a1a', color: '#fff', border: '1px solid #c0392b', borderRadius: 4, padding: '9px 14px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}
+                                            <HoverBtn
+                                                base={{ ...btnDanger(restoreReady), width: 'auto' }}
+                                                hover={{ background: PAL.dangerBgHover }}
                                                 disabled={restore.busy || !restoreReady}
                                                 onClick={() => setRestoreOverwrite(true)}
                                             >
-                                                ⚠ Overwrite existing {isSaved ? 'saved search' : isGeneric ? (sel ? sel.koClass : 'object') : 'dashboard'} &ldquo;{restoreName}&rdquo; in {restoreApp}
-                                            </button>
-                                            <button type="button" style={btn('#3c4043')} disabled={restore.busy} onClick={() => setRestore(null)}>Cancel</button>
+                                                Overwrite existing {isSaved ? 'saved search' : isGeneric ? (sel ? sel.koClass : 'object') : 'dashboard'}
+                                            </HoverBtn>
+                                            <HoverBtn base={{ ...btnSecondary, width: 'auto' }} hover={{ borderColor: PAL.text3 }} disabled={restore.busy} onClick={() => setRestore(null)}>
+                                                Cancel
+                                            </HoverBtn>
                                         </div>
                                     </div>
                                 ) : (
-                                    <div style={{ marginTop: 8, display: 'flex', gap: 10 }}>
-                                        <button
-                                            type="button"
-                                            style={{ ...btn(restoreReady && restoreNameExists !== null ? '#b8860b' : '#3c4043'), display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                                    <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
+                                        <HoverBtn
+                                            base={{ ...(restoreOverwrite ? btnDanger(restoreReady && restoreNameExists !== null)
+                                                                        : btnRestore(restoreReady && restoreNameExists !== null)), width: 'auto' }}
+                                            hover={restoreOverwrite ? { background: PAL.dangerBgHover } : { background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }}
                                             disabled={restore.busy || !restoreReady || restoreNameExists === null}
                                             onClick={() => doRestore(restoreOverwrite)}
                                         >
-                                            {restore.busy ? <><Spinner size={12} color="#fff" /> Restoring…</> : restoreOverwrite ? '⚠ Confirm overwrite' : 'Confirm restore'}
-                                        </button>
-                                        <button type="button" style={btn('#3c4043')} disabled={restore.busy} onClick={() => setRestore(null)}>Cancel</button>
+                                            {restore.busy
+                                                ? <><Spinner size={12} color={restoreOverwrite ? PAL.danger : PAL.restoreText} /> Restoring…</>
+                                                : restoreOverwrite ? 'Confirm overwrite' : 'Confirm restore'}
+                                        </HoverBtn>
+                                        <HoverBtn base={{ ...btnSecondary, width: 'auto' }} hover={{ borderColor: PAL.text3 }} disabled={restore.busy} onClick={() => setRestore(null)}>
+                                            Cancel
+                                        </HoverBtn>
                                     </div>
                                 )}
                             </div>
@@ -1529,30 +1764,25 @@ export default function WrapperApp() {
             ) : null}
 
             {compare ? (
-                <Modal title={singleVersion ? `View — ${sel ? sel.title : ''}` : `Compare — ${sel ? sel.title : ''}`} onClose={() => setCompare(null)}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: '#0e1116', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                        {[['visual', 'Visual'], ['source', 'Source'], ['diff', 'Source diff']].filter(([t]) => !singleVersion || t !== 'diff').map(([t, label]) => (
-                            <button
-                                key={t}
-                                type="button"
-                                onClick={() => setCmpTab(t)}
-                                style={{ background: cmpTab === t ? '#1a73e8' : 'transparent', color: '#e6e6e6', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 4, padding: '4px 12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}
-                            >
-                                {label}
-                            </button>
-                        ))}
+                <Modal title={singleVersion ? `View: ${sel ? sel.title : ''}` : `Compare: ${sel ? sel.title : ''}`} onClose={() => setCompare(null)}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', background: PAL.panel, borderBottom: `1px solid ${PAL.edgeSoft}`, flexWrap: 'wrap' }}>
+                        <Seg
+                            items={[['visual', 'Visual'], ['source', 'Source'], ['diff', 'Source diff']].filter(([t]) => !singleVersion || t !== 'diff')}
+                            active={cmpTab}
+                            onSelect={setCmpTab}
+                        />
                         {cmpTab !== 'visual' ? (
                             <React.Fragment>
-                                <div style={{ flex: 1 }} />
-                                <span style={{ color: '#6b7177', fontSize: 11, marginRight: 4 }}>Restore:</span>
+                                <span style={{ flex: 1 }} />
+                                <span style={{ color: PAL.text3, fontSize: 11.5, marginRight: 2 }}>Restore</span>
                                 {!singleVersion ? (
-                                    <button type="button" title="Restore the older version" style={{ background: 'transparent', color: '#8ab4f8', border: '1px solid #8ab4f8', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }} onClick={() => openRestore(baseIdx)}>
+                                    <HoverBtn base={btnRestoreSmall(true)} hover={{ background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }} title="Restore the older version" onClick={() => openRestore(baseIdx)}>
                                         ⟲ Older
-                                    </button>
+                                    </HoverBtn>
                                 ) : null}
-                                <button type="button" title={singleVersion ? 'Restore this version' : 'Restore the newer version'} style={{ background: 'transparent', color: '#81c995', border: '1px solid #81c995', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }} onClick={() => openRestore(targetIdx)}>
+                                <HoverBtn base={btnRestoreSmall(true)} hover={{ background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }} title={singleVersion ? 'Restore this version' : 'Restore the newer version'} onClick={() => openRestore(targetIdx)}>
                                     {singleVersion ? '⟲ Restore this version' : '⟲ Newer'}
-                                </button>
+                                </HoverBtn>
                             </React.Fragment>
                         ) : null}
                     </div>
@@ -1562,15 +1792,14 @@ export default function WrapperApp() {
                                 /* Single-version view: one column, simple run button, no blend or diff overlay */
                                 <React.Fragment>
                                     {!runTarget ? (
-                                        <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12, background: '#0e1116', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                                            <button type="button" style={btn('#1a7a3f')} onClick={() => setRunTarget(true)}>▶ Run</button>
-                                            <span style={{ color: cmpCombined === 'heavy' ? '#f85149' : '#e8a87c', fontSize: 12 }}>
-                                                ⚠ Rendering runs the dashboard&apos;s searches live{cmpCombined === 'heavy' ? ' — this looks HEAVY' : ''}.
-                                            </span>
-                                            <HeavyBadge a={cmpTargetHeavy} label="Latest" />
+                                        <div style={{ padding: '9px 12px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 14, background: PAL.panel, borderBottom: `1px solid ${PAL.edgeSoft}` }}>
+                                            <HoverBtn base={btnPrimarySmall(true)} hover={{ background: PAL.primaryBtnHover }} onClick={() => setRunTarget(true)}>▶ Run</HoverBtn>
+                                            <Notice inline>Rendering runs the dashboard&apos;s searches live.</Notice>
+                                            <span style={{ flex: 1 }} />
+                                            <CostFlag a={cmpTargetHeavy} />
                                         </div>
                                     ) : null}
-                                    <CompareColumn accent="#81c995" tag="VERSION" label={compare.targetLabel} url={compare.targetUrl} run={runTarget} onRun={() => setRunTarget(true)} onRestore={() => openRestore(targetIdx)} heavy={cmpTargetHeavy} changes={[]} canvasW={0} canvasH={0} overlays={false} kinds={kinds} />
+                                    <CompareColumn tag="Version" label={compare.targetLabel} url={compare.targetUrl} run={runTarget} onRun={() => setRunTarget(true)} onRestore={() => openRestore(targetIdx)} heavy={cmpTargetHeavy} changes={[]} canvasW={0} canvasH={0} overlays={false} kinds={kinds} />
                                 </React.Fragment>
                             ) : (
                                 /* Multi-version view: toolbar, two columns, blend */
@@ -1581,40 +1810,44 @@ export default function WrapperApp() {
                                         const md = cmpChanges.target.changes.filter((c) => c.kind === 'moved' || c.kind === 'retitled').length
                                             + cmpChanges.baseline.changes.filter((c) => c.kind === 'moved').length;
                                         const rm = cmpChanges.baseline.changes.filter((c) => c.kind === 'removed').length;
-                                        const kindBox = (key, color, label, n) => (
-                                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: overlays ? 'pointer' : 'default', fontSize: 11, color: overlays ? color : '#5a636e', opacity: overlays ? 1 : 0.5 }}>
-                                                <input type="checkbox" disabled={!overlays} checked={kinds[key]} onChange={(e) => setKinds((k) => ({ ...k, [key]: e.target.checked }))} />
-                                                <span style={{ width: 10, height: 10, borderRadius: 2, border: `1.5px ${key === 'removed' ? 'dashed' : 'solid'} ${color}`, background: color + '22', display: 'inline-block' }} />
+                                        const kindBox = (key, color, bg, label, n) => (
+                                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: overlays ? 'pointer' : 'default', fontSize: 11.5, color: overlays ? PAL.text2 : PAL.text3, opacity: overlays ? 1 : 0.5 }}>
+                                                <input type="checkbox" disabled={!overlays} checked={kinds[key]} onChange={(e) => setKinds((k) => ({ ...k, [key]: e.target.checked }))} style={{ accentColor: PAL.accent }} />
+                                                <span style={{ width: 10, height: 10, borderRadius: 2, border: `1.5px ${key === 'removed' ? 'dashed' : 'solid'} ${color}`, background: bg, display: 'inline-block' }} />
                                                 {label} ({n})
                                             </label>
                                         );
-                                        const modeSwitch = (
-                                            <div style={{ display: 'inline-flex', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 4, overflow: 'hidden' }}>
-                                                {[['boxes', 'Boxes'], ['blend', 'Blend']].map(([m, l]) => (
-                                                    <button key={m} type="button" onClick={() => { setVisualMode(m); if (m === 'blend') setHasBlended(true); }} title={m === 'blend' ? 'Stack both renders and blend (difference / onion-skin)' : 'Draw change boxes on each render, side by side'} style={{ background: visualMode === m ? '#1a73e8' : 'transparent', color: '#e6e6e6', border: 0, padding: '4px 12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>{l}</button>
-                                                ))}
-                                            </div>
-                                        );
                                         return (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '6px 12px', background: '#0e1116', borderBottom: '1px solid rgba(255,255,255,0.08)', flexWrap: 'wrap' }}>
-                                                {modeSwitch}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '8px 12px', background: PAL.panel, borderBottom: `1px solid ${PAL.edgeSoft}`, flexWrap: 'wrap' }}>
+                                                {/* Blend stacks two renders, so it is meaningless for a single
+                                                    captured version. That case never reaches here: View mode is
+                                                    handled by the singleVersion arm above, which renders no
+                                                    toolbar at all. */}
+                                                <Seg
+                                                    items={[
+                                                        ['boxes', 'Boxes', 'Draw change boxes on each render, side by side'],
+                                                        ['blend', 'Blend', 'Stack both renders and blend (difference / onion-skin)'],
+                                                    ]}
+                                                    active={visualMode}
+                                                    onSelect={(m) => { setVisualMode(m); if (m === 'blend') setHasBlended(true); }}
+                                                />
                                                 {visualMode === 'boxes' ? (
                                                     <React.Fragment>
-                                                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: 12, color: '#e6e6e6' }}>
-                                                            <input type="checkbox" checked={overlays} onChange={(e) => setOverlays(e.target.checked)} />
+                                                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: 12, color: PAL.text }}>
+                                                            <input type="checkbox" checked={overlays} onChange={(e) => setOverlays(e.target.checked)} style={{ accentColor: PAL.accent }} />
                                                             Highlight changes
                                                         </label>
-                                                        {kindBox('added', '#46aa5a', 'Added', a)}
-                                                        {kindBox('modified', '#d6b35a', 'Modified', md)}
-                                                        {kindBox('removed', '#e0505a', 'Removed', rm)}
-                                                        {!a && !md && !rm ? <span style={{ color: '#6b7177', fontSize: 11 }}>no structural change</span> : null}
+                                                        {kindBox('added', PAL.diffAdded, PAL.diffAddedBg, 'Added', a)}
+                                                        {kindBox('modified', PAL.diffModified, PAL.diffModifiedBg, 'Modified', md)}
+                                                        {kindBox('removed', PAL.diffRemoved, PAL.diffRemovedBg, 'Removed', rm)}
+                                                        {!a && !md && !rm ? <span style={{ color: PAL.text3, fontSize: 11 }}>no structural change</span> : null}
                                                         <span style={{ flex: 1 }} />
-                                                        <span style={{ fontSize: 11, color: '#6b7177' }}>boxes drawn over the live render (Run a side to see them)</span>
+                                                        <span style={{ fontSize: 11.5, color: PAL.text3 }}>boxes are drawn over the live render: run a side to see them</span>
                                                     </React.Fragment>
                                                 ) : (
                                                     <React.Fragment>
                                                         <span style={{ flex: 1 }} />
-                                                        <span style={{ fontSize: 11, color: '#6b7177' }}>both renders stacked &amp; blended — identical pixels cancel, changes glow</span>
+                                                        <span style={{ fontSize: 11.5, color: PAL.text3 }}>both renders stacked &amp; blended: identical pixels cancel, changes glow</span>
                                                     </React.Fragment>
                                                 )}
                                             </div>
@@ -1625,23 +1858,24 @@ export default function WrapperApp() {
                                         persisted with display:none so iframes survive mode toggles without
                                         re-running their searches. */}
                                     <div style={{ display: visualMode === 'boxes' ? 'contents' : 'none' }}>
+                                        {/* Everything from here down is inside the `singleVersion ? ... : ...`
+                                            ELSE arm above, so singleVersion is already false. Do not re-test
+                                            it: a second branch here is unreachable, and a maintainer editing
+                                            View mode would be editing dead code. */}
                                         <React.Fragment>
                                             {!runBase || !runTarget ? (
-                                                <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12, background: '#0e1116', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                                                    <button type="button" style={btn('#1a7a3f')} onClick={() => { setRunBase(true); setRunTarget(true); }}>▶ Run both</button>
-                                                    <span style={{ color: cmpCombined === 'heavy' ? '#f85149' : '#e8a87c', fontSize: 12 }}>
-                                                        ⚠ Rendering runs each dashboard's searches live{cmpCombined === 'heavy' ? ' — these look HEAVY' : ''}. Run both, or one side at a time.
-                                                    </span>
-                                                    <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
-                                                        <HeavyBadge a={cmpBaseHeavy} label="Older" />
-                                                        <HeavyBadge a={cmpTargetHeavy} label="Newer" />
-                                                    </div>
+                                                <div style={{ padding: '9px 12px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 14, background: PAL.panel, borderBottom: `1px solid ${PAL.edgeSoft}` }}>
+                                                    <HoverBtn base={btnPrimarySmall(true)} hover={{ background: PAL.primaryBtnHover }} onClick={() => { setRunBase(true); setRunTarget(true); }}>▶ Run both</HoverBtn>
+                                                    <Notice inline>Rendering runs each dashboard&apos;s searches live. Run both, or one side at a time.</Notice>
+                                                    <span style={{ flex: 1 }} />
+                                                    <CostFlag a={cmpBaseHeavy} prefix="Older" />
+                                                    <CostFlag a={cmpTargetHeavy} prefix="Newer" />
                                                 </div>
                                             ) : null}
                                             <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-                                                <CompareColumn accent="#8ab4f8" tag="OLDER" label={compare.baseLabel} url={compare.baseUrl} run={runBase} onRun={() => setRunBase(true)} onRestore={() => openRestore(baseIdx)} heavy={cmpBaseHeavy} changes={cmpChanges.baseline.changes} canvasW={cmpChanges.baseline.canvasW} canvasH={cmpChanges.baseline.canvasH} overlays={overlays} kinds={kinds} />
-                                                <div style={{ width: 1, background: 'rgba(255,255,255,0.18)' }} />
-                                                <CompareColumn accent="#81c995" tag="NEWER" label={compare.targetLabel} url={compare.targetUrl} run={runTarget} onRun={() => setRunTarget(true)} onRestore={() => openRestore(targetIdx)} heavy={cmpTargetHeavy} changes={cmpChanges.target.changes} canvasW={cmpChanges.target.canvasW} canvasH={cmpChanges.target.canvasH} overlays={overlays} kinds={kinds} />
+                                                <CompareColumn tag="Older" label={compare.baseLabel} url={compare.baseUrl} run={runBase} onRun={() => setRunBase(true)} onRestore={() => openRestore(baseIdx)} heavy={cmpBaseHeavy} changes={cmpChanges.baseline.changes} canvasW={cmpChanges.baseline.canvasW} canvasH={cmpChanges.baseline.canvasH} overlays={overlays} kinds={kinds} />
+                                                <div style={{ width: 1, background: PAL.edgeSoft }} />
+                                                <CompareColumn tag="Newer" label={compare.targetLabel} url={compare.targetUrl} run={runTarget} onRun={() => setRunTarget(true)} onRestore={() => openRestore(targetIdx)} heavy={cmpTargetHeavy} changes={cmpChanges.target.changes} canvasW={cmpChanges.target.canvasW} canvasH={cmpChanges.target.canvasH} overlays={overlays} kinds={kinds} />
                                             </div>
                                         </React.Fragment>
                                     </div>
@@ -1649,13 +1883,13 @@ export default function WrapperApp() {
                                         {(hasBlended && runBase && runTarget) ? (
                                             <BlendView baseUrl={compare.baseUrl} targetUrl={compare.targetUrl} baseLabel={compare.baseLabel} targetLabel={compare.targetLabel} />
                                         ) : (
-                                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: '#9aa0a6', background: '#0b0c10' }}>
+                                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: PAL.text2, background: PAL.modalBody }}>
                                                 <div style={{ display: 'flex', gap: 8 }}>
-                                                    <HeavyBadge a={cmpBaseHeavy} label="Older" />
-                                                    <HeavyBadge a={cmpTargetHeavy} label="Newer" />
+                                                    <CostFlag a={cmpBaseHeavy} prefix="Older" />
+                                                    <CostFlag a={cmpTargetHeavy} prefix="Newer" />
                                                 </div>
-                                                <button type="button" style={btn('#1a7a3f')} onClick={() => { setRunBase(true); setRunTarget(true); setHasBlended(true); }}>▶ Run both to blend</button>
-                                                <span style={{ fontSize: 13, color: cmpCombined === 'heavy' ? '#f85149' : '#9aa0a6' }}>Blend stacks both live renders, so both must run{cmpCombined === 'heavy' ? ' — these look HEAVY' : ''}.</span>
+                                                <HoverBtn base={btnPrimarySmall(true)} hover={{ background: PAL.primaryBtnHover }} onClick={() => { setRunBase(true); setRunTarget(true); setHasBlended(true); }}>▶ Run both to blend</HoverBtn>
+                                                <Notice>Blend stacks both live renders, so both must run.</Notice>
                                             </div>
                                         )}
                                     </div>
@@ -1666,26 +1900,29 @@ export default function WrapperApp() {
                         singleVersion ? (
                             /* Single-version: one SourceView panel */
                             <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                                <div style={{ padding: '4px 12px', background: '#11151a', color: '#81c995', fontFamily: MONO, fontSize: 11, borderBottom: '2px solid #81c995' }}>
-                                    <b>VERSION</b> · {compare.targetLabel}
+                                <div style={{ padding: '7px 12px', background: PAL.field, borderBottom: `1px solid ${PAL.edgeSoft}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', color: PAL.text3, whiteSpace: 'nowrap' }}>Version</span>
+                                    <span style={{ fontFamily: MONO, fontSize: 11.5, color: PAL.text2, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{compare.targetLabel}</span>
                                 </div>
                                 <div style={{ flex: 1, minHeight: 0 }}>
                                     <SourceView raw={compare.targetXml} title={sel ? sel.title : ''} app={sel ? sel.appName : ''} initialDepth={-1} />
                                 </div>
                             </div>
                         ) : (
-                            <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: 1, background: 'rgba(255,255,255,0.18)' }}>
+                            <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: 1, background: PAL.edgeSoft }}>
                                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                                    <div style={{ padding: '4px 12px', background: '#11151a', color: '#8ab4f8', fontFamily: MONO, fontSize: 11, borderBottom: '2px solid #8ab4f8' }}>
-                                        <b>OLDER</b> · {compare.baseLabel}
+                                    <div style={{ padding: '7px 12px', background: PAL.field, borderBottom: `1px solid ${PAL.edgeSoft}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', color: PAL.text3, whiteSpace: 'nowrap' }}>Older</span>
+                                        <span style={{ fontFamily: MONO, fontSize: 11.5, color: PAL.text2, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{compare.baseLabel}</span>
                                     </div>
                                     <div style={{ flex: 1, minHeight: 0 }}>
                                         <SourceView raw={compare.baseXml} title={sel ? sel.title : ''} app={sel ? sel.appName : ''} initialDepth={-1} />
                                     </div>
                                 </div>
                                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                                    <div style={{ padding: '4px 12px', background: '#11151a', color: '#81c995', fontFamily: MONO, fontSize: 11, borderBottom: '2px solid #81c995' }}>
-                                        <b>NEWER</b> · {compare.targetLabel}
+                                    <div style={{ padding: '7px 12px', background: PAL.field, borderBottom: `1px solid ${PAL.edgeSoft}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', color: PAL.text3, whiteSpace: 'nowrap' }}>Newer</span>
+                                        <span style={{ fontFamily: MONO, fontSize: 11.5, color: PAL.text2, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{compare.targetLabel}</span>
                                     </div>
                                     <div style={{ flex: 1, minHeight: 0 }}>
                                         <SourceView raw={compare.targetXml} title={sel ? sel.title : ''} app={sel ? sel.appName : ''} initialDepth={-1} />
@@ -1716,13 +1953,17 @@ export default function WrapperApp() {
 function Modal({ title, onClose, children, zIndex }) {
     return (
         <div onClick={onClose || undefined} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: zIndex || 1000 }}>
-            <div onClick={(e) => e.stopPropagation()} style={{ width: '95vw', height: '92vh', background: '#0b0c10', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 12px 48px rgba(0,0,0,0.6)', fontFamily: SANS }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#15171c', color: '#e6e6e6', fontFamily: 'ui-sans-serif, system-ui, sans-serif', fontSize: 13 }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ width: '95vw', height: '92vh', background: PAL.modalBody, border: `1px solid ${PAL.edge}`, borderRadius: 6, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 12px 48px rgba(0,0,0,0.6)', fontFamily: SANS }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px', background: PAL.panel, borderBottom: `1px solid ${PAL.edgeSoft}`, color: PAL.text, fontFamily: 'ui-sans-serif, system-ui, sans-serif', fontSize: 13, fontWeight: 600 }}>
                     <span>{title}</span>
                     {onClose ? (
-                        <button type="button" onClick={onClose} style={{ background: 'transparent', color: '#e6e6e6', border: '1px solid rgba(255,255,255,0.25)', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                        <HoverBtn
+                            base={{ background: 'transparent', color: PAL.text2, border: `1px solid ${PAL.edge}`, borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 500, transition: 'color .12s, border-color .12s' }}
+                            hover={{ color: PAL.text, borderColor: PAL.text3 }}
+                            onClick={onClose}
+                        >
                             ✕ Close
-                        </button>
+                        </HoverBtn>
                     ) : null}
                 </div>
                 {children}
@@ -1731,7 +1972,7 @@ function Modal({ title, onClose, children, zIndex }) {
     );
 }
 
-function CompareColumn({ accent, tag, label, url, run, onRun, onRestore, heavy, changes, canvasW, canvasH, overlays, kinds }) {
+function CompareColumn({ tag, label, url, run, onRun, onRestore, heavy, changes, canvasW, canvasH, overlays, kinds }) {
     const ifRef = React.useRef(null);
     const shown = React.useMemo(
         () => (changes || []).filter((c) => (kinds ? kinds[KIND_GROUP[c.kind] || 'modified'] : true)),
@@ -1756,31 +1997,31 @@ function CompareColumn({ accent, tag, label, url, run, onRun, onRestore, heavy, 
         const el = ifRef.current;
         if (!el) return undefined;
         let stop = null;
-        const begin = () => { if (stop) stop(); stop = startHighlightPoll(el, shown, { canvasW, canvasH }, setDiag); };
+        const begin = () => { if (stop) stop(); stop = startHighlightPoll(el, shown, { canvasW, canvasH }, setDiag, HL_COLORS); };
         el.addEventListener('load', begin);
         begin(); // in case it already loaded
         return () => { el.removeEventListener('load', begin); if (stop) stop(); };
     }, [run, url, overlays, nShown, canvasW, canvasH, kinds]); // eslint-disable-line react-hooks/exhaustive-deps
     return (
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: '6px 12px', background: '#11151a', color: accent, fontFamily: MONO, fontSize: 12, borderBottom: `2px solid ${accent}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    <b>{tag}</b> · {label}
-                    {overlays && nShown ? (
-                        <span style={{ color: diag && diag.count ? '#81c995' : '#e8a87c' }}>
-                            {' '}· {diag ? (diag.selector && diag.selector.indexOf('canvas') === 0 ? `${diag.count} boxed` : `found ${diag.found} · boxed ${diag.count}${diag.selector ? ` · [${diag.selector}]` : ''}`) : `${nShown} to box…`}
-                        </span>
-                    ) : null}
-                </span>
-                <button type="button" onClick={onRestore} title={`Restore this ${tag.toLowerCase()} version`} style={{ background: 'transparent', color: accent, border: `1px solid ${accent}`, borderRadius: 4, padding: '3px 10px', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+            <div style={{ padding: '7px 12px', background: PAL.field, borderBottom: `1px solid ${PAL.edgeSoft}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', color: PAL.text3, whiteSpace: 'nowrap' }}>{tag}</span>
+                <span style={{ fontFamily: MONO, fontSize: 11.5, color: PAL.text2, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+                {overlays && nShown ? (
+                    <span style={{ fontSize: 11.5, color: diag && diag.count ? PAL.text2 : PAL.warn, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {diag ? (diag.selector && diag.selector.indexOf('canvas') === 0 ? `${diag.count} boxed` : `found ${diag.found} · boxed ${diag.count}${diag.selector ? ` · [${diag.selector}]` : ''}`) : `${nShown} to box…`}
+                    </span>
+                ) : null}
+                <span style={{ flex: 1 }} />
+                <HoverBtn base={btnRestoreSmall(true)} hover={{ background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }} title={`Restore this ${tag.toLowerCase()} version`} onClick={onRestore}>
                     ⟲ Restore
-                </button>
+                </HoverBtn>
             </div>
             {run ? (
                 <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
                     {!iframeLoaded ? (
-                        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0b0c10', zIndex: 2, gap: 8, color: '#9aa0a6', fontSize: 13 }}>
-                            <Spinner size={16} color={accent} /> Loading…
+                        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: PAL.modalBody, zIndex: 2, gap: 8, color: PAL.text2, fontSize: 13 }}>
+                            <Spinner size={16} color={PAL.accent} /> Loading…
                         </div>
                     ) : null}
                     <iframe ref={ifRef} title={tag} src={url}
@@ -1789,11 +2030,11 @@ function CompareColumn({ accent, tag, label, url, run, onRun, onRestore, heavy, 
                         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0, background: '#fff' }} />
                 </div>
             ) : (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: '#6b7177', background: '#0b0c10', fontSize: 13 }}>
-                    {heavy ? <HeavyBadge a={heavy} label="Run cost" /> : null}
-                    <button type="button" onClick={onRun} style={{ background: '#1a7a3f', color: '#fff', border: 0, borderRadius: 4, padding: '10px 18px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: PAL.text3, background: PAL.modalBody, fontSize: 13 }}>
+                    {heavy ? <CostFlag a={heavy} /> : null}
+                    <HoverBtn base={btnPrimarySmall(true)} hover={{ background: PAL.primaryBtnHover }} onClick={onRun}>
                         ▶ Run searches
-                    </button>
+                    </HoverBtn>
                     <span>Runs only this {tag.toLowerCase()} dashboard.</span>
                 </div>
             )}
@@ -1925,57 +2166,43 @@ function BlendView({ baseUrl, targetUrl, baseLabel, targetLabel }) {
         pointerEvents: 'none',
     };
 
-    const btnSmall = (active) => ({
-        background: active ? '#1a73e8' : '#2a2d31',
-        color: '#e6e6e6',
-        border: '1px solid rgba(255,255,255,0.18)',
-        borderRadius: 4,
-        padding: '3px 9px',
-        cursor: 'pointer',
-        fontFamily: 'inherit',
-        fontSize: 12,
-    });
-
     return (
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
             {/* ── toolbar ── */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '6px 12px', background: '#0e1116', borderBottom: '1px solid rgba(255,255,255,0.08)', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '8px 12px', background: PAL.panel, borderBottom: `1px solid ${PAL.edgeSoft}`, flexWrap: 'wrap' }}>
                 {/* mode toggle */}
-                <div style={{ display: 'inline-flex', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 4, overflow: 'hidden' }}>
-                    {[['difference', 'Difference'], ['onion', 'Onion-skin']].map(([m, l]) => (
-                        <button key={m} type="button" onClick={() => pickMode(m)} style={{ background: mode === m ? '#1a73e8' : 'transparent', color: '#e6e6e6', border: 0, padding: '4px 12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>{l}</button>
-                    ))}
-                </div>
+                <Seg items={[['difference', 'Difference'], ['onion', 'Onion-skin']]} active={mode} onSelect={pickMode} />
                 {/* opacity/blend slider */}
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#e6e6e6' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, color: PAL.text2 }}>
                     {mode === 'onion' ? 'Older ⇄ Newer' : 'Intensity'}
-                    <input type="range" min={0} max={100} value={op} onChange={(e) => setOp(Number(e.target.value))} style={{ width: 180 }} />
-                    <span style={{ fontFamily: MONO, fontSize: 11, color: '#9aa0a6', width: 34, textAlign: 'right' }}>{op}%</span>
+                    <input type="range" min={0} max={100} value={op} onChange={(e) => setOp(Number(e.target.value))} style={{ width: 180, accentColor: PAL.accent }} />
+                    <span style={{ fontFamily: MONO, fontSize: 11, color: PAL.text3, width: 34, textAlign: 'right' }}>{op}%</span>
                 </label>
                 {/* zoom controls */}
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <button type="button" title="Zoom out" onClick={zoomOut} disabled={zoom <= ZOOM_STEPS[0]} style={btnSmall(false)}>−</button>
-                    <button type="button" title="Reset zoom" onClick={() => setZoom(1)} style={btnSmall(zoom !== 1)}>{Math.round(zoom * 100)}%</button>
-                    <button type="button" title="Zoom in" onClick={zoomIn} disabled={zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]} style={btnSmall(false)}>+</button>
+                    <HoverBtn base={ghostSmall(false)} hover={{ color: PAL.text, borderColor: PAL.text3 }} title="Zoom out" onClick={zoomOut} disabled={zoom <= ZOOM_STEPS[0]}>−</HoverBtn>
+                    <HoverBtn base={ghostSmall(zoom !== 1)} hover={{ color: PAL.text, borderColor: PAL.text3 }} title="Reset zoom" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</HoverBtn>
+                    <HoverBtn base={ghostSmall(false)} hover={{ color: PAL.text, borderColor: PAL.text3 }} title="Zoom in" onClick={zoomIn} disabled={zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}>+</HoverBtn>
                 </div>
                 {/* per-layer vertical alignment nudges — each slider moves ONLY
                     its own layer, so a panel that moved between versions can be
-                    lined up without ambiguity. Colours match the version labels. */}
+                    lined up without ambiguity. Quiet/neutral text — the arrows
+                    (▼/▲) plus label carry the distinction, not color. */}
                 {[
-                    ['▼ OLDER', '#8ab4f8', prevY, setPrevY],
-                    ['▲ NEWER', '#81c995', latestY, setLatestY],
-                ].map(([lbl, col, val, set]) => (
-                    <label key={lbl} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: col }}
+                    ['▼ Older', prevY, setPrevY],
+                    ['▲ Newer', latestY, setLatestY],
+                ].map(([lbl, val, set]) => (
+                    <label key={lbl} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: PAL.text2 }}
                         title={'Shift ' + lbl.slice(2) + ' up/down to align it with the other version'}>
                         {lbl}&nbsp;↕
                         <input type="range" min={-offRange} max={offRange} step={5} value={val}
-                            onChange={(e) => set(Number(e.target.value))} style={{ width: 120, accentColor: col }} />
-                        <span style={{ fontFamily: MONO, fontSize: 11, color: '#9aa0a6', width: 50, textAlign: 'right' }}>{val > 0 ? '+' : ''}{val}px</span>
-                        <button type="button" title={'Reset ' + lbl.slice(2)} onClick={() => set(0)} disabled={val === 0} style={btnSmall(val !== 0)}>↺</button>
+                            onChange={(e) => set(Number(e.target.value))} style={{ width: 120, accentColor: PAL.accent }} />
+                        <span style={{ fontFamily: MONO, fontSize: 11, color: PAL.text3, width: 50, textAlign: 'right' }}>{val > 0 ? '+' : ''}{val}px</span>
+                        <HoverBtn base={ghostSmall(val !== 0)} hover={{ color: PAL.text, borderColor: PAL.text3 }} title={'Reset ' + lbl.slice(2)} onClick={() => set(0)} disabled={val === 0}>↺</HoverBtn>
                     </label>
                 ))}
                 <span style={{ flex: 1 }} />
-                <span style={{ fontSize: 11, color: '#6b7177' }}>
+                <span style={{ fontSize: 11, color: PAL.text3 }}>
                     {mode === 'difference' ? 'identical pixels → black · changes glow in colour' : 'slide to fade between the two versions'}
                 </span>
             </div>
@@ -2003,8 +2230,8 @@ function BlendView({ baseUrl, targetUrl, baseLabel, targetLabel }) {
                         style={topStyle} />
                     {/* version labels — pinned inside the scaled container */}
                     <div style={{ position: 'absolute', left: 8, top: 8, display: 'flex', gap: 6, pointerEvents: 'none', zIndex: 2 }}>
-                        <span style={{ background: 'rgba(11,12,16,0.78)', color: '#8ab4f8', fontFamily: MONO, fontSize: 10, padding: '2px 7px', borderRadius: 3 }}>▼ OLDER · {baseLabel}</span>
-                        <span style={{ background: 'rgba(11,12,16,0.78)', color: '#81c995', fontFamily: MONO, fontSize: 10, padding: '2px 7px', borderRadius: 3 }}>▲ NEWER · {targetLabel}</span>
+                        <span style={{ background: 'rgba(11,12,16,0.78)', color: PAL.text2, fontFamily: MONO, fontSize: 10, padding: '2px 7px', borderRadius: 3 }}>▼ Older · {baseLabel}</span>
+                        <span style={{ background: 'rgba(11,12,16,0.78)', color: PAL.text2, fontFamily: MONO, fontSize: 10, padding: '2px 7px', borderRadius: 3 }}>▲ Newer · {targetLabel}</span>
                     </div>
                 </div>
             </div>
@@ -2076,15 +2303,6 @@ function SourceDiff({ a, b }) {
         borderLeft: '3px solid ' + cellEdge(t),
     });
     const sign = (t) => (t === 'add' ? '+' : t === 'del' ? '-' : ' ');
-    const toggleBtn = (m, label) => (
-        <button
-            type="button"
-            onClick={() => setMode(m)}
-            style={{ background: mode === m ? '#1a73e8' : 'transparent', color: '#e6e6e6', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 4, padding: '2px 9px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11 }}
-        >
-            {label}
-        </button>
-    );
 
     return (
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -2092,8 +2310,7 @@ function SourceDiff({ a, b }) {
                 <span style={{ color: '#f85149' }}>-{dels}</span> <span style={{ color: '#81c995' }}>+{adds}</span>
                 <span>older &rarr; newer</span>
                 <div style={{ flex: 1 }} />
-                {toggleBtn('split', 'Split')}
-                {toggleBtn('unified', 'Unified')}
+                <Seg items={[['split', 'Split'], ['unified', 'Unified']]} active={mode} onSelect={setMode} />
             </div>
             {mode === 'unified' ? (
                 <div style={{ flex: 1, overflow: 'auto', fontFamily: MONO, fontSize: 12, lineHeight: 1.5, padding: '6px 0', background: '#0b0c10' }}>
@@ -2107,7 +2324,7 @@ function SourceDiff({ a, b }) {
                             style={{ padding: '0 10px', cursor: 'pointer', color: '#4FA7D6', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
                             onClick={() => setShowAllDiff(true)}
                         >
-                            {'… ' + (ops.length - DIFF_CAP) + ' more lines — show all'}
+                            {'… ' + (ops.length - DIFF_CAP) + ' more lines, show all'}
                         </div>
                     ) : null}
                 </div>
@@ -2130,7 +2347,7 @@ function SourceDiff({ a, b }) {
                                 onClick={() => setShowAllDiff(true)}
                             >
                                 <div style={{ flex: 1, padding: '0 10px', color: '#4FA7D6' }}>
-                                    {'… ' + (rows.length - DIFF_CAP) + ' more lines — show all'}
+                                    {'… ' + (rows.length - DIFF_CAP) + ' more lines, show all'}
                                 </div>
                                 <div style={{ flex: 1, padding: '0 10px' }} />
                             </div>

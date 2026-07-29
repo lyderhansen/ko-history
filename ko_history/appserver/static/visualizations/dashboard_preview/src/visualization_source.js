@@ -194,7 +194,7 @@ define([
         var timer;
         var p = new Promise(function(_resolve, reject) {
             timer = setTimeout(function() {
-                reject(new Error('write timed out after ' + ms + 'ms — splunkd did not respond'));
+                reject(new Error('write timed out after ' + ms + 'ms. splunkd did not respond'));
             }, ms);
         });
         return { promise: p, cancel: function() { clearTimeout(timer); } };
@@ -577,7 +577,7 @@ define([
             if (isSandboxed()) {
                 this.iframe.style.visibility = 'hidden';
                 this._showPlaceholder('Not supported in this dashboard',
-                    'The host runs this visualization in a sandboxed iframe (Dashboard Studio does this), which blocks the same-origin write needed to render a preview. Use this visualization inside a Classic Simple XML dashboard — e.g. KO History → KO Version.');
+                    'The host runs this visualization in a sandboxed iframe (Dashboard Studio does this), which blocks the same-origin write needed to render a preview. Use this visualization inside a Classic Simple XML dashboard, for example KO History → KO Version.');
                 return;
             }
 
@@ -790,7 +790,7 @@ define([
                 if (self._inflightKey !== key) return;
                 self._inflightKey = null;
                 var msg = (err && err.message) ? err.message : String(err);
-                var csrf = getCsrfToken() ? 'present' : 'MISSING (no splunkweb_csrf_token cookie — viz may be sandboxed)';
+                var csrf = getCsrfToken() ? 'present' : 'MISSING (no splunkweb_csrf_token cookie, viz may be sandboxed)';
                 var detail = msg + '  ·  target app: ' + PREVIEW_APP + '  ·  CSRF token: ' + csrf;
                 if (typeof console !== 'undefined' && console.error) {
                     console.error('[dashboard_preview] write failed:', detail, err);

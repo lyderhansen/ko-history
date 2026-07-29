@@ -2,7 +2,7 @@
   <label>Help &amp; Dependencies</label>
   <definition><![CDATA[
 {
-  "title": "KO History \u2014 Help & Dependencies",
+  "title": "KO History: Help & Dependencies",
   "description": "How the wrapper, the ko_version_ds dashboard, the index, the saved searches and the custom visualizations depend on each other.",
   "dataSources": {},
   "inputs": {},
@@ -11,7 +11,49 @@
       "type": "splunk.markdown",
       "name": "md_overview",
       "options": {
-        "markdown": "# KO History \u2014 how the pieces fit together\n\n**KO History** captures and versions Splunk knowledge objects (dashboards,\nreports, alerts) into a summary index so you can audit changes and recover\ncontent after accidental deletes, overwrites, or moves.\n\nThis page is a map of the app's moving parts and, importantly, **what depends on\nwhat** \u2014 read it before renaming a view, moving the index, or changing the\ndashboard's selection markers.\n\n| Piece | Type | Role |\n|---|---|---|\n| `wrapper` | React app page (Mako) | The home page. Embeds `ko_version_ds`, drives preview / compare / **restore**. |\n| `ko_version_ds` | Dashboard Studio | The actual data UI: filters, KPIs, KO table, version list, textual diff, **source viewer**. |\n| `ko_version` | Simple XML | Legacy/alternate dashboard; SXML live-render preview via `dashboard_preview`. |\n| `index=ko_history` | summary index | Append-only version log. Everything reads from here. |\n| saved searches | 17 stanzas | Populate the index (7 type backups + combined delete-audit + lookup builder + usage collector + 7 one-time backfills). |\n| custom viz `source_viewer` | bundled viz | Foldable, syntax-highlighted KO source. Used in `ko_version_ds` **and** (its logic) in the wrapper. |\n| custom viz `dashboard_preview` | bundled viz | Live dashboard render for Simple XML host (write-then-iframe). |\n"
+        "markdown": "# KO History: how the pieces fit together\n\n**KO History** captures and versions Splunk knowledge objects into a summary\nindex so you can audit changes and recover content after accidental deletes,\noverwrites, or moves. Seven types are covered: dashboards, reports and alerts,\nsearch macros, event types, field extractions, lookup definitions, and tags.\n\nThis page is a map of the app's moving parts and, importantly, **what depends on\nwhat**. Read it before renaming a view, moving the index, or changing the\ndashboard's selection markers.\n\n| Piece | Type | Role |\n|---|---|---|\n| `wrapper` | React app page (Mako) | The home page. Embeds `ko_version_ds`, drives preview / compare / **restore**. |\n| `ko_version_ds` | Dashboard Studio | The actual data UI: filters, KPIs, KO table, version list, textual diff, **source viewer**. |\n| `ko_version` | Simple XML | Legacy/alternate dashboard; SXML live-render preview via `dashboard_preview`. |\n| `index=ko_history` | summary index | Append-only version log. Everything reads from here. |\n| saved searches | 17 stanzas | Populate the index (7 type backups + combined delete-audit + lookup builder + usage collector + 7 one-time backfills). |\n| custom viz `source_viewer` | bundled viz | Foldable, syntax-highlighted KO source. Used in `ko_version_ds` **and** (its logic) in the wrapper. |\n| custom viz `dashboard_preview` | bundled viz | Live dashboard render for Simple XML host (write-then-iframe). |\n| custom viz `ko_viewer` | bundled viz | Splunk-native record card for one KO version (reports/alerts get a bespoke profile). |\n| `ko_help` | Dashboard Studio | This page. |\n"
+      }
+    },
+    "md_capture": {
+      "type": "splunk.markdown",
+      "name": "md_capture",
+      "options": {
+        "markdown": "## What actually gets captured\n\nTwo different kinds of event land in `index=ko_history`, and the difference\nmatters when you are reading the version list.\n\n**Backup snapshots** (`ko_*_backup`, one per type) hit the REST API on a\nstaggered 15-minute cron and write one event per KO that changed. The event\ncarries the object's full source or configuration, so it is what a restore\nreplays. Crucially, `_time` is set to the KO's own `updated` timestamp, **not**\nthe time the search ran. That is what turns the index into an append-only\nversion log rather than a log of collection runs.\n\n**Audit records** (`ko_all_delete_audit`, hourly) scrape splunkd access logs in\n`_internal` for DELETE and POST move against KO REST URIs. They carry no source,\nbecause by then the object is gone. They are the only place the acting user is\nrecorded, which is what lets the dashboard answer \"who deleted this\".\n\n| Type | Backup search | REST endpoint behind it |\n|---|---|---|\n| Dashboards | `ko_views_xml_backup` | `data/ui/views` |\n| Reports & alerts | `ko_reports_and_alerts_backup` | `saved/searches` |\n| Search macros | `ko_macros_backup` | `admin/macros` |\n| Event types | `ko_eventtypes_backup` | `saved/eventtypes` |\n| Field extractions | `ko_fieldextractions_backup` | `data/props/extractions` |\n| Lookup definitions | `ko_lookups_backup` | `data/transforms/lookups` |\n| Tags | `ko_tags_backup` | `configs/conf-tags` |\n\n**Only changes are captured.** Each backup ends with a `where updated>now`\nfilter scoped to the `ko_backup_window` macro (default 900 seconds). Widening\nthat window without widening the cron interval re-indexes the same version on\nevery run. The wrapper's scratch preview slots are excluded by name, so\npreviewing never pollutes the history.\n"
+      }
+    },
+    "md_operating": {
+      "type": "splunk.markdown",
+      "name": "md_operating",
+      "options": {
+        "markdown": "## Operating it\n\n### 1. The index must exist first\n\nNothing works until `ko_history` exists. `default/indexes.conf` ships with the\napp and sets a 20-year frozen period, which is the setting that stops old-dated\nsnapshots being aged out. That file applies **only on a search head**:\n\n- **Splunk Enterprise, single search head:** a full restart picks it up. Nothing\n  to do.\n- **Splunk Enterprise, indexer cluster:** create `ko_history` through your\n  cluster manager before enabling anything.\n- **Splunk Cloud:** create an Events index named `ko_history` via the Admin\n  Console. The bundled `indexes.conf` is inert there.\n\n### 2. Enable the capture searches\n\n**Every search ships `disabled = 1`.** This is deliberate: an app that starts\nwriting to a non-existent index on install is worse than one that waits. Enable\nthe seven `ko_*_backup` searches and `ko_all_delete_audit` under Settings,\nSearches, reports and alerts. Wait one cron cycle, roughly 15 minutes.\n\n### 3. Seed history for objects nobody has touched (optional)\n\nThe incremental backups only capture a KO once it is *edited*. An object that is\nnever touched after install and then deleted would have no snapshot to restore\nfrom. The seven `ko_*_backfill` searches close that gap: they snapshot every\ncurrent object of their type, writing to the same summary source as the matching\nbackup so the dashboards see them transparently.\n\nRun each **once, manually**, then leave it disabled. There is no dedup, so\nre-running duplicates snapshots. Each backfill also ships a commented-out\n`| collect` line for the case where you paste the SPL into a search bar, where\nthe saved search's summary-index action does not apply.\n\n### 4. Usage statistics (optional)\n\n`ko_tracked_kos_lookup_builder` and `ko_usage_collector` run daily and populate\nthe access and run counts shown in the KO tables. Enable both together or\nneither: the collector reads the lookup the builder writes.\n"
+      }
+    },
+    "md_restore": {
+      "type": "splunk.markdown",
+      "name": "md_restore",
+      "options": {
+        "markdown": "## Restore: what it does, and what it does not\n\nRestore writes a **real knowledge object** into whichever app you pick, from the\nsnapshot you selected. It is the reason the app exists, so it is worth being\nprecise about its edges.\n\n**What you get back:** the object's source or configuration exactly as captured.\nFor a dashboard that is the full XML or Studio JSON. For a saved search it is\nthe search string, schedule, alert condition and trigger actions.\n\n**What you do not get back:**\n\n- **Sharing and ownership.** Restored objects are written as owner `nobody`\n  (app-shared). The original ACLs are not replayed. Re-apply permissions\n  yourself if they mattered.\n- **Lookup file contents.** A lookup's *definition* is versioned; the underlying\n  `.csv` or KV-store collection is not, and is not restored.\n- **Tag removals.** Restoring tags re-enables the captured assignments on a\n  `field=value` pair. Tags added since the snapshot are not removed.\n\n**Restoring over an existing object is irreversible** and requires a separate,\nexplicit confirmation in the UI. If KO History also has a snapshot of what you\noverwrote, that snapshot is your way back. If it does not, there is none.\n\n**You need write access** to `data/ui/views` (or the relevant endpoint) in the\ntarget app. Restore is an admin capability by design; see Permissions below.\n"
+      }
+    },
+    "md_history": {
+      "type": "splunk.markdown",
+      "name": "md_history",
+      "options": {
+        "markdown": "## Reading the version list\n\nA few behaviours surprise people the first time.\n\n- **The oldest snapshot is labelled \"created\".** It is the earliest record the\n  app holds, which is not necessarily when the object was created: anything\n  before the capture searches were enabled is simply not there. Backfill events\n  are stamped at the time you ran the backfill.\n- **Delete and move rows have no source.** They come from the audit stream, so\n  they cannot be previewed, diffed or restored. They tell you *what happened*\n  and *who did it*, not *what it looked like*.\n- **The version list is capped at the 200 most recent** entries per object. A KO\n  edited hundreds of times will not show its whole history in the picker.\n- **Preview runs the dashboard's real searches.** A snapshot preview is a live\n  render, so a heavy dashboard costs what it normally costs. The cost flag on\n  the panel warns before you commit, and calls out unbounded time ranges, which\n  are usually the expensive part.\n- **Comparing writes two scratch views**, `kohist_cmp_baseline_<user>` and\n  `kohist_cmp_target_<user>`, inside this app. Your real objects are never\n  touched, and the slots are per-user so two admins do not collide.\n"
+      }
+    },
+    "md_permissions": {
+      "type": "splunk.markdown",
+      "name": "md_permissions",
+      "options": {
+        "markdown": "## Permissions (read before granting anything)\n\n`metadata/default.meta` grants read to all roles and write to `admin` and\n`sc_admin`. **Do not broaden the `[views]` write stanza.**\n\nThe reason is specific, not cautious boilerplate. All bundled visualizations\nexport as `system`, so they are usable from dashboards in any app. Any role\ngranted `[views]` write **in this app** therefore gains a view create-and-\noverwrite primitive that is reachable from any dashboard, fleet-wide. The\nbrowser approval prompt in the wrapper is a convenience, not a security control:\nit runs client-side and cannot be relied on as a gate.\n\nIf non-admin roles genuinely need preview or restore, the supported path is a\nconstrained server-side endpoint (a custom REST handler enforcing per-user and\nper-slot limits), not a wider write grant.\n"
+      }
+    },
+    "md_troubleshooting": {
+      "type": "splunk.markdown",
+      "name": "md_troubleshooting",
+      "options": {
+        "markdown": "## Troubleshooting\n\n**The KO table is empty.** The index exists but nothing has been captured yet.\nConfirm the searches are enabled and that at least one cron cycle has passed.\n`index=ko_history | stats count by source` tells you immediately whether events\nare arriving and from which search.\n\n**A dashboard I know exists has no versions.** The backups only capture objects\nthat change. Until someone edits it, or you run the matching backfill, there is\nnothing to show.\n\n**Versions load slowly, or time out.** The wrapper bounds a version search at 30\nseconds and then offers Retry. A consistently slow search usually means a very\nlarge index with a wide time range; the searches deliberately run over all time\nbecause backfilled events can carry old timestamps.\n\n**The wrapper page looks stale after an upgrade.** The React page is served from\na Mako template plus a static bundle. Copying files or reloading the app is not\nenough: a **full `splunk restart`** is required.\n\n**Preview boxes do not appear.** The in-iframe highlighter tries a ladder of\nselectors and may need tuning on an unusual Splunk build. The structural change\nlist and the source diff never depend on the iframe DOM, so they still work.\n"
       }
     },
     "md_dependency": {
@@ -25,35 +67,42 @@
       "type": "splunk.markdown",
       "name": "md_contract",
       "options": {
-        "markdown": "## The wrapper \u2194 ko_version_ds contract (read this before editing either)\n\nThe React **wrapper** does not re-implement the data UI \u2014 it **embeds\n`ko_version_ds` in a same-origin iframe** and communicates with it through two\none-way channels. Break either channel and the wrapper goes inert.\n\n**1. Selection flows dashboard \u2192 wrapper via two marker panels.**\n`ko_version_ds` has two markdown panels for this:\n\n> `viz_link_label` (human, display only): `Selected: <title> \u00b7 app: <app> \u00b7 type: <type> \u00b7 previous: <time>`\n>\n> `viz_link` (machine, parsed by wrapper, **invisible** \u2014 fontColor transparent):\n> `kohist-sel: <title> \u27ea|\u27eb <app> \u27ea|\u27eb <type> \u27ea|\u27eb <time>`\n\nThe wrapper reads the `kohist-sel:` line when you **click** inside the embedded\ndashboard (a few delayed reads catch DS's async token update), plus a 5-second\nsafety heartbeat that also re-attaches the click listener after iframe reloads.\nIt falls back to the legacy `Selected: \u2026 \u27ea|\u27eb \u2026` format if the new line is absent\n(stale dashboard, new wrapper). **If you delete the `viz_link` panel, rename the\ntoken names (`link_title`, `link_app`, `time`), or change the `kohist-sel:`\nprefix, the wrapper stops detecting selections.**\n\n**2. Preview / compare / restore flow wrapper \u2192 Splunk via REST.**\nThe wrapper writes dashboard source into **scratch \"slot\" views** in *this* app\nand then iframes them:\n\n- `kohist_cmp_baseline_<user>`, `kohist_cmp_target_<user>` \u2014 the compare modal's two render slots (suffixed with the sanitized current username since 0.1.93; falls back to unsuffixed when unavailable).\n- Restore writes a **real** view into the app you pick (default = origin).\n\nThis needs **write access to `data/ui/views` in `ko_history`** for the viewing\nuser. `metadata/default.meta` grants write to `admin, sc_admin`. **Do not broaden\nthe `[views]` write stanza** \u2014 the vizs export as `system`, so that grant becomes a\nview create/overwrite primitive reachable from any dashboard, gated only by a\nclient-side prompt. The browser approval prompt is convenience, **not** security \u2014\nSplunk RBAC is the real gate.\n\n**3. The app id must stay `ko_history` (underscore).** The React Mako page cannot\nlive under a hyphenated app id. Renaming the app breaks `PREVIEW_APP` /\n`KO_INDEX` and the iframe URLs.\n"
+        "markdown": "## The wrapper \u2194 ko_version_ds contract (read this before editing either)\n\nThe React **wrapper** does not re-implement the data UI. It **embeds\n`ko_version_ds` in a same-origin iframe** and communicates with it through two\none-way channels. Break either channel and the wrapper goes inert.\n\n**1. Selection flows dashboard to wrapper via two marker panels.**\n`ko_version_ds` carries two markdown panels for this:\n\n> `viz_link_label` (human, display only):\n> `Selected: <title> \u00b7 app: <app> \u00b7 type: <type> \u00b7 older: <time>`\n>\n> `viz_link` (machine, read by the wrapper, **invisible**: it is rendered with a\n> transparent font colour, so it is present in the DOM but not on screen):\n> `kohist-sel: <title> \u27ea|\u27eb <app> \u27ea|\u27eb <ko_class> \u27ea|\u27eb <epoch>`\n\nA real example, taken from clicking a lookup called `kodemo_lookup` in the\n`search` app before choosing a version:\n\n```\nkohist-sel: kodemo_lookup \u27ea|\u27eb search \u27ea|\u27eb lookup \u27ea|\u27eb\n```\n\n**The four fields**\n\n| Field | Token | Meaning |\n|---|---|---|\n| title | `$link_title$` | The object's name. May contain spaces and punctuation. |\n| app | `$link_app$` | The app the object lives in. |\n| ko_class | `$ko_class$` | One of `dashboard`, `savedsearch`, `macro`, `eventtype`, `fieldextraction`, `lookup`, `tag`. Decides which panes the wrapper offers. |\n| epoch | `$time$` | Integer seconds of the **older** version selected in the version list. **Empty until a version is clicked**, as in the example above. |\n\n**Why the delimiter is `\u27ea|\u27eb`.** A plain `|` would collide with SPL and with\nknowledge-object names. The sequence has to be something that cannot occur in\nreal content, because the fields are positional and unlabelled.\n\n**Two states that are not errors and must not be treated as selections.**\nBefore anything is clicked, `link_title` and `link_app` hold a placeholder dash,\nand unresolved tokens arrive literally as `$link_title$`. The wrapper rejects\nboth, otherwise it would try to load version history for an object named after\nthe placeholder. Both dash glyphs are accepted: the generator emits an en dash,\nbut a dashboard generated before that change emits an em dash.\n\n**The empty epoch is the normal case, not an edge case.** The KO table's\ndrilldown sets title, app and class but not `time`; only the version list sets\n`time`. So the *first* click on any object always produces a marker ending in a\ndelimiter with nothing after it. A parser that requires a value there drops\nevery first selection, which is indistinguishable from the app being broken.\n\n**How the wrapper reads it.** On a **click** inside the embedded dashboard, with\na few delayed re-reads because Dashboard Studio updates tokens asynchronously,\nplus a 5-second heartbeat that also re-attaches the click listener after an\niframe reload. Reading is done through `textContent`, which never triggers\nlayout. A last-resort full-body scan exists for builds where no targeted\nselector matches, rate-limited so it cannot become a hot loop.\n\n**If you change any of this**, the wrapper stops detecting selections: deleting\nthe `viz_link` panel, renaming `link_title` / `link_app` / `ko_class` / `time`,\nor altering the `kohist-sel:` prefix or the delimiter. The parser and its tests\nlive in `src/util/markerParse.js` and `tools/dev/test_marker_parse.js`; change\nthe format in the generator and that test tells you what broke.\n\n**2. Preview / compare / restore flow wrapper \u2192 Splunk via REST.**\nThe wrapper writes dashboard source into **scratch \"slot\" views** in *this* app\nand then iframes them:\n\n- `kohist_cmp_baseline_<user>`, `kohist_cmp_target_<user>`: the compare modal's two render slots (suffixed with the sanitized current username since 0.1.93; falls back to unsuffixed when unavailable).\n- Restore writes a **real** view into the app you pick (default = origin).\n\nThis needs **write access to `data/ui/views` in `ko_history`** for the viewing\nuser. `metadata/default.meta` grants write to `admin, sc_admin`. **Do not broaden\nthe `[views]` write stanza**. The vizs export as `system`, so that grant becomes a\nview create/overwrite primitive reachable from any dashboard, gated only by a\nclient-side prompt. The browser approval prompt is convenience, **not** security.\nSplunk RBAC is the real gate.\n\n**3. The app id must stay `ko_history` (underscore).** The React Mako page cannot\nlive under a hyphenated app id. Renaming the app breaks `PREVIEW_APP` /\n`KO_INDEX` and the iframe URLs.\n"
       }
     },
     "md_react": {
       "type": "splunk.markdown",
       "name": "md_react",
       "options": {
-        "markdown": "## The React wrapper page \u2014 what it is & how it points at the dashboard\n\nThe home page `wrapper` is **not** a dashboard. It's a Splunk **Mako template +\nwebpack-bundled React app** (`@splunk/react-page`), served at\n`/app/ko_history/wrapper`. Source lives in `ko_history/src/` (entry\n`pages/wrapper/index.jsx` \u2192 `components/WrapperApp.jsx`); `build.sh` compiles it\nto `appserver/static/pages/wrapper.js`. It runs with the **user's real session**\n(cookies + CSRF), which is the whole reason it can do authenticated REST and\nsame-origin iframes that a sandboxed DS custom viz cannot.\n\n### How it references `ko_version_ds`\n\nIt **embeds the dashboard in a same-origin `<iframe>`**. The URL is built in\n`WrapperApp.jsx` (the `dashUrl` memo):\n\n```\n/<locale>/app/ko_history/ko_version_ds\n    ?hideEdit=true&hideTitle=true&hideChrome=true\n    &hideSplunkBar=true&hideAppBar=true&hideFooter=true\n```\n\n- `<locale>` is read from the current page URL (e.g. `en-US`, `en-GB`) \u2014 not hardcoded.\n- The app segment comes from the constant **`PREVIEW_APP` (`ko_history`)** in\n  `src/util/splunkRest.js`.\n- The **view id `ko_version_ds` is a string literal** in `dashUrl`.\n- The `hide*` query params strip all Splunk chrome so only the dashboard body shows.\n\n### Can the reference be changed / updated?\n\nYes \u2014 but it is a **compile-time constant in the bundle, not a runtime setting**.\nThere is no setup screen and no `.conf` knob for it. To change it:\n\n| To change\u2026 | Edit | Then |\n|---|---|---|\n| Which dashboard is embedded | the `ko_version_ds` literal in `dashUrl` (`WrapperApp.jsx`) | `./build.sh` + reinstall + **full restart** |\n| Which app it lives in | `PREVIEW_APP` in `src/util/splunkRest.js` (also moves slots/REST target \u2014 only when renaming the whole app) | `./build.sh` + reinstall + **full restart** |\n| What chrome is hidden | the `chrome` string in `dashUrl` (and `previewUrl`) | rebuild |\n\nBecause the embed target is baked into `wrapper.js`, **editing the dashboard XML\non disk and reloading is not enough for wrapper changes** \u2014 the static bundle\nneeds a rebuild and a full `splunk restart` (a reload won't refresh it).\n\n### The authenticated REST endpoints the wrapper calls\n\nAll same-origin, under `/<locale>/splunkd/__raw/servicesNS/nobody/<app>/\u2026`, with\nthe `splunkweb_csrf_token` cookie echoed as `X-Splunk-Form-Key`:\n\n- **Read versions / list apps** \u2014 `search/jobs` oneshot against `index=ko_history`.\n- **Compare** \u2014 POST `eai:data` to scratch slot views `kohist_cmp_baseline_<user>` /\n  `kohist_cmp_target_<user>` in `ko_history`, then iframe them (chrome-stripped, cache-busted).\n  Slot names are suffixed with the sanitized current username (since 0.1.93) so\n  concurrent compares by different users don't overwrite each other's slots.\n- **Restore** \u2014 POST `eai:data` to `data/ui/views/<name>` in the **app you choose**\n  (writes a real dashboard; 403 = you lack write on that app).\n\nSo the wrapper depends on `ko_version_ds` for the *embedded UI + selection\nsignal*, and on the *index + its own write access* for compare/restore \u2014 these\nare two independent dependencies, documented above and in the contract section.\n\n"
+        "markdown": "## The React wrapper page: what it is & how it points at the dashboard\n\nThe home page `wrapper` is **not** a dashboard. It's a Splunk **Mako template +\nwebpack-bundled React app** (`@splunk/react-page`), served at\n`/app/ko_history/wrapper`. Source lives in `ko_history/src/` (entry\n`pages/wrapper/index.jsx` \u2192 `components/WrapperApp.jsx`); `build.sh` compiles it\nto `appserver/static/pages/wrapper.js`. It runs with the **user's real session**\n(cookies + CSRF), which is the whole reason it can do authenticated REST and\nsame-origin iframes that a sandboxed DS custom viz cannot.\n\n### How it references `ko_version_ds`\n\nIt **embeds the dashboard in a same-origin `<iframe>`**. The URL is built in\n`WrapperApp.jsx` (the `dashUrl` memo):\n\n```\n/<locale>/app/ko_history/ko_version_ds\n    ?hideEdit=true&hideTitle=true&hideChrome=true\n    &hideSplunkBar=true&hideAppBar=true&hideFooter=true\n```\n\n- `<locale>` is read from the current page URL (e.g. `en-US`, `en-GB`), not hardcoded.\n- The app segment comes from the constant **`PREVIEW_APP` (`ko_history`)** in\n  `src/util/splunkRest.js`.\n- The **view id `ko_version_ds` is a string literal** in `dashUrl`.\n- The `hide*` query params strip all Splunk chrome so only the dashboard body shows.\n\n### Can the reference be changed / updated?\n\nYes, but it is a **compile-time constant in the bundle, not a runtime setting**.\nThere is no setup screen and no `.conf` knob for it. To change it:\n\n| To change\u2026 | Edit | Then |\n|---|---|---|\n| Which dashboard is embedded | the `ko_version_ds` literal in `dashUrl` (`WrapperApp.jsx`) | `./build.sh` + reinstall + **full restart** |\n| Which app it lives in | `PREVIEW_APP` in `src/util/splunkRest.js` (also moves slots/REST target, only when renaming the whole app) | `./build.sh` + reinstall + **full restart** |\n| What chrome is hidden | the `chrome` string in `dashUrl` (and `previewUrl`) | rebuild |\n\nBecause the embed target is baked into `wrapper.js`, **editing the dashboard XML\non disk and reloading is not enough for wrapper changes**. The static bundle\nneeds a rebuild and a full `splunk restart` (a reload won't refresh it).\n\n### The authenticated REST endpoints the wrapper calls\n\nAll same-origin, under `/<locale>/splunkd/__raw/servicesNS/nobody/<app>/\u2026`, with\nthe `splunkweb_csrf_token` cookie echoed as `X-Splunk-Form-Key`:\n\n- **Read versions / list apps**: `search/jobs` oneshot against `index=ko_history`.\n- **Compare**: POST `eai:data` to scratch slot views `kohist_cmp_baseline_<user>` /\n  `kohist_cmp_target_<user>` in `ko_history`, then iframe them (chrome-stripped, cache-busted).\n  Slot names are suffixed with the sanitized current username (since 0.1.93) so\n  concurrent compares by different users don't overwrite each other's slots.\n- **Restore**: POST `eai:data` to `data/ui/views/<name>` in the **app you choose**\n  (writes a real dashboard; 403 = you lack write on that app).\n\nSo the wrapper depends on `ko_version_ds` for the *embedded UI + selection\nsignal*, and on the *index + its own write access* for compare/restore. These\nare two independent dependencies, documented above and in the contract section.\n\n"
       }
     },
     "md_rest": {
       "type": "splunk.markdown",
       "name": "md_rest",
       "options": {
-        "markdown": "## The dashboard REST API \u2014 two layers (and why KO History exists)\n\nSplunk exposes dashboards through two distinct REST layers. The distinction is\nthe whole basis for this app. **See the live *REST API Explorer* page** in this\napp's nav \u2014 it queries both layers against your instance.\n\n### Layer 1 \u2014 `\u2026/data/ui/views` (BOTH formats)\n`servicesNS/{owner}/{app}/data/ui/views` is **format-agnostic**: every view is a\nrow, whether it's Dashboard Studio (`<dashboard version=\"2\">`) or Classic Simple\nXML (`<dashboard>` / `<form>`). Create / read / update / delete all behave the\nsame; the format lives in the `eai:data` envelope. Verified live on a Splunk\n10.4 instance: a single call returned **261 views = 153 DS + 108 Simple XML**.\n**KO History uses this endpoint** for snapshot backups, the compare preview\nslots, and one-click restore \u2014 which is exactly why it works for both formats.\n\n### Layer 2 \u2014 `\u2026/data/ui/views/{name}/history` & `/revision` (Dashboard Studio only)\nNative dashboard **version history** is a Dashboard Studio feature (Splunk 10.x).\nIts REST surface applies **only to Studio dashboards**, captures a version **only\non explicit save**, stores history **with** the dashboard (delete it \u2192 history is\ngone), and is gated (single search head; not on FIPS-mode Windows). Simple XML\nhas no native revisions. Evidence: the standard view entry advertises links\n`_reload / alternate / edit / list / disable / move / remove` \u2014 **no `history` or\n`revision` link** \u2014 so it's a separate, DS-only surface.\n\n### The gap KO History fills\nFull CRUD exists for both formats, but **native versioning covers only DS, only\non save, stored with the object.** KO History versions **Simple XML too** (plus\nreports/alerts) via periodic snapshots into `index=ko_history` that **survive\ndeletion** and **restore to any app**.\n\n*(`| rest` is a normal search command in Splunk Web; it's only blocked in the\nproject's MCP allowlist, so the Explorer page's panels run fine.)*\n\n"
+        "markdown": "## The dashboard REST API: two layers (and why KO History exists)\n\nSplunk exposes dashboards through two distinct REST layers. The distinction is\nthe whole basis for this app.\n\n### Layer 1: `\u2026/data/ui/views` (BOTH formats)\n`servicesNS/{owner}/{app}/data/ui/views` is **format-agnostic**: every view is a\nrow, whether it's Dashboard Studio (`<dashboard version=\"2\">`) or Classic Simple\nXML (`<dashboard>` / `<form>`). Create / read / update / delete all behave the\nsame; the format lives in the `eai:data` envelope. Verified live on a Splunk\n10.4 instance: a single call returned **261 views = 153 DS + 108 Simple XML**.\n**KO History uses this endpoint** for snapshot backups, the compare preview\nslots, and one-click restore, which is exactly why it works for both formats.\n\n### Layer 2: `\u2026/data/ui/views/{name}/history` & `/revision` (Dashboard Studio only)\nNative dashboard **version history** is a Dashboard Studio feature (Splunk 10.x).\nIts REST surface applies **only to Studio dashboards**, captures a version **only\non explicit save**, stores history **with** the dashboard (delete it \u2192 history is\ngone), and is gated (single search head; not on FIPS-mode Windows). Simple XML\nhas no native revisions. Evidence: the standard view entry advertises links\n`_reload / alternate / edit / list / disable / move / remove`, with **no `history` or\n`revision` link**, so it's a separate, DS-only surface.\n\n### The gap KO History fills\nFull CRUD exists for both formats, but **native versioning covers only DS, only\non save, stored with the object.** KO History versions **Simple XML too** (plus\nreports/alerts) via periodic snapshots into `index=ko_history` that **survive\ndeletion** and **restore to any app**.\n\n"
       }
     },
     "md_viz": {
       "type": "splunk.markdown",
       "name": "md_viz",
       "options": {
-        "markdown": "## Custom visualizations & the DS sandbox\n\nDashboard Studio runs every custom visualization in a **sandboxed iframe** \u2014 no\ncookies, no authenticated fetch, no child iframes. That single fact shapes the\nwhole design:\n\n- **`source_viewer`** \u2014 pure client-side formatting of a source string. Sandbox-safe,\n  so it runs natively inside `ko_version_ds` (the *Source of selected version*\n  panel) and its logic is reused client-side in the wrapper's **Source** compare\n  tab. Reads columns `data` / `title` / `app`.\n- **`dashboard_preview`** (SXML) \u2014 live render via write-then-iframe; only works\n  in Simple XML, where same-origin iframes are allowed.\n- **`ko_viewer`** \u2014 record-card viz for saved searches and generic KOs (macros,\n  event types, field extractions, lookups, tags) with field-level diff; DOM-based,\n  sandbox-safe.\n- **The wrapper exists** precisely because it is *not* sandboxed: as a real app\n  page it has the user's session, so it can do authenticated REST and same-origin\n  iframes (live preview, restore) that a DS custom viz never could.\n\nAll three vizs are `export = system` in `metadata/default.meta` so they appear in\nthe viz picker. The viz type is `<app>.<viz>` \u2192 e.g. `ko_history.source_viewer`.\n"
+        "markdown": "## Custom visualizations & the DS sandbox\n\nDashboard Studio runs every custom visualization in a **sandboxed iframe**, so no\ncookies, no authenticated fetch, no child iframes. That single fact shapes the\nwhole design:\n\n- **`source_viewer`**: pure client-side formatting of a source string. Sandbox-safe,\n  so it runs natively inside `ko_version_ds` (the *Source of selected version*\n  panel) and its logic is reused client-side in the wrapper's **Source** compare\n  tab. Reads columns `data` / `title` / `app`.\n- **`dashboard_preview`** (SXML): live render via write-then-iframe; only works\n  in Simple XML, where same-origin iframes are allowed.\n- **`ko_viewer`**: record-card viz for saved searches and generic KOs (macros,\n  event types, field extractions, lookups, tags) with field-level diff; DOM-based,\n  sandbox-safe.\n- **The wrapper exists** precisely because it is *not* sandboxed: as a real app\n  page it has the user's session, so it can do authenticated REST and same-origin\n  iframes (live preview, restore) that a DS custom viz never could.\n\nAll three vizs are `export = system` in `metadata/default.meta` so they appear in\nthe viz picker. The viz type is `<app>.<viz>` \u2192 e.g. `ko_history.source_viewer`.\n"
       }
     },
     "md_install": {
       "type": "splunk.markdown",
       "name": "md_install",
       "options": {
-        "markdown": "## Install & rebuild notes\n\n- **Deploy = tarball only.** `./build.sh` at the repo root builds the custom-viz\n  bundles + the React page and packages `dist/ko_history-<version>.tar.gz`.\n  Install that tarball; do **not** hand-edit files inside a running Splunk.\n- **Full restart for the React bundle.** Changes to the wrapper's static bundle\n  need a full `splunk restart` (a reload is not enough) plus a hard browser\n  refresh.\n- **Regenerate dashboards** after editing their generators:\n  `python3 tools/gen_ko_version_ds.py` and `python3 tools/gen_ko_help.py`.\n- **This page** is generated by `tools/gen_ko_help.py` \u2014 edit the markdown there,\n  not the committed XML.\n"
+        "markdown": "## Install & rebuild notes\n\n- **Deploy = tarball only.** `./build.sh` at the repo root builds the custom-viz\n  bundles + the React page and packages `dist/ko_history-<version>.tar.gz`.\n  Install that tarball; do **not** hand-edit files inside a running Splunk.\n- **Full restart for the React bundle.** Changes to the wrapper's static bundle\n  need a full `splunk restart` (a reload is not enough) plus a hard browser\n  refresh.\n- **Regenerate dashboards** after editing their generators:\n  `python3 tools/gen_ko_version_ds.py` and `python3 tools/gen_ko_help.py`.\n- **This page** is generated by `tools/gen_ko_help.py`: edit the markdown there,\n  not the committed XML.\n"
+      }
+    },
+    "md_changes": {
+      "type": "splunk.markdown",
+      "name": "md_changes",
+      "options": {
+        "markdown": "## Notable changes\n\n**1.1.0**\n\n- The REST API Explorer and KO Statistics dashboards were removed. They were\n  development tools rather than product surfaces.\n- Searches now run as asynchronous jobs and are polled, replacing a blocking\n  call that could leave the preview panel loading indefinitely on a slow\n  instance.\n- Every shipped search carries inline SPL comments.\n- Apache-2.0 `LICENSE` ships with the app.\n\n**1.0.3**\n\n- `json_viewer` was renamed to `source_viewer`, and `dashboard_preview_ds` was\n  removed. If you reference `ko_history.json_viewer` or\n  `ko_history.dashboard_preview_ds` from your own dashboards, update them.\n"
       }
     }
   },
@@ -61,7 +110,7 @@
     "type": "absolute",
     "options": {
       "width": 1280,
-      "height": 3960,
+      "height": 10415,
       "display": "auto"
     },
     "structure": [
@@ -72,7 +121,67 @@
           "x": 0,
           "y": 0,
           "w": 1280,
-          "h": 520
+          "h": 553
+        }
+      },
+      {
+        "item": "md_capture",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 573,
+          "w": 1280,
+          "h": 763
+        }
+      },
+      {
+        "item": "md_operating",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 1356,
+          "w": 1280,
+          "h": 931
+        }
+      },
+      {
+        "item": "md_restore",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 2307,
+          "w": 1280,
+          "h": 637
+        }
+      },
+      {
+        "item": "md_history",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 2964,
+          "w": 1280,
+          "h": 511
+        }
+      },
+      {
+        "item": "md_permissions",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 3495,
+          "w": 1280,
+          "h": 406
+        }
+      },
+      {
+        "item": "md_troubleshooting",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 3921,
+          "w": 1280,
+          "h": 574
         }
       },
       {
@@ -80,9 +189,9 @@
         "type": "block",
         "position": {
           "x": 0,
-          "y": 540,
+          "y": 4515,
           "w": 1280,
-          "h": 560
+          "h": 637
         }
       },
       {
@@ -90,9 +199,9 @@
         "type": "block",
         "position": {
           "x": 0,
-          "y": 1120,
+          "y": 5172,
           "w": 1280,
-          "h": 640
+          "h": 1750
         }
       },
       {
@@ -100,9 +209,9 @@
         "type": "block",
         "position": {
           "x": 0,
-          "y": 1780,
+          "y": 6942,
           "w": 1280,
-          "h": 760
+          "h": 1330
         }
       },
       {
@@ -110,7 +219,7 @@
         "type": "block",
         "position": {
           "x": 0,
-          "y": 2560,
+          "y": 8292,
           "w": 1280,
           "h": 700
         }
@@ -120,9 +229,9 @@
         "type": "block",
         "position": {
           "x": 0,
-          "y": 3280,
+          "y": 9012,
           "w": 1280,
-          "h": 420
+          "h": 532
         }
       },
       {
@@ -130,9 +239,19 @@
         "type": "block",
         "position": {
           "x": 0,
-          "y": 3720,
+          "y": 9564,
           "w": 1280,
-          "h": 260
+          "h": 343
+        }
+      },
+      {
+        "item": "md_changes",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 9927,
+          "w": 1280,
+          "h": 448
         }
       }
     ]

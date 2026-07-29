@@ -6,3 +6,8 @@ dist/
 .DS_Store
 ._*
 *.bak
+
+# Byte-identical legacy copies of the launcher icons. Splunk, AppInspect and the
+# Splunkbase listing read ko_history/static/; build.sh excludes these from the
+# package. Removed in v1.0.2 and ignored so a sync cannot resurrect them.
+ko_history/appserver/static/appIcon*.png

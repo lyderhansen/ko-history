@@ -204,7 +204,7 @@ export default function SourceView({ raw, indent = 2, initialDepth = 0, title, a
             <button key="show-all" type="button" className="kojv__truncrow kojv__line"
                     onClick={() => setShowAll(true)}>
                 <span className="kojv__code">
-                    {'truncated — showing first 4,000 of ' + totalVisible.toLocaleString() + ' lines · click to show all'}
+                    {'truncated: showing first 4,000 of ' + totalVisible.toLocaleString() + ' lines · click to show all'}
                 </span>
             </button>
         );

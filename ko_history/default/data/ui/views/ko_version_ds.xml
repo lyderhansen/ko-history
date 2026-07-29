@@ -17,13 +17,19 @@
           "value": ""
         },
         "link_title": {
-          "value": "\u2014"
+          "value": "\u2013"
         },
         "link_app": {
-          "value": "\u2014"
+          "value": "\u2013"
         },
         "time": {
           "value": ""
+        },
+        "compare_newer": {
+          "value": "auto"
+        },
+        "compare_older": {
+          "value": "auto"
         },
         "kpi_filter": {
           "value": "*"
@@ -116,7 +122,7 @@
       "type": "ds.search",
       "name": "Base - KO version history",
       "options": {
-        "query": "index=\"ko_history\" NOT source=\"ko_usage\"\n| eval type=coalesce(type, case(match(source,\"views_delete_audit\"),\"views\",match(source,\"reports_and_alerts_delete_audit\"),\"savedsearch\",match(source,\"macros_delete_audit\"),\"macro\",match(source,\"eventtypes_delete_audit\"),\"eventtype\",match(source,\"fieldextractions_delete_audit\"),\"fieldextraction\",match(source,\"lookups_delete_audit\"),\"lookup\",match(source,\"tags_delete_audit\"),\"tag\"))\n| search type=\"$koType$\"\n| rex field=uri \"\\/en-\\w\\w\\/splunkd\\/__raw\\/servicesNS\\/.*?\\/(?<appName>.+?)\\/\"\n| rex field=uri \"/servicesNS/.*?\\/(?<appName>.*?)/data/ui/views/\"\n| rex field=uri \"/servicesNS/[^/]+/(?<app_uri>[^/]+)/\"\n| rex \"(?<method>updated)\"\n| rex mode=sed field=file \"s/%20/ /g\"\n| rex mode=sed field=file \"s/%3A/:/g\"\n| rex mode=sed field=file \"s/%21/!/g\"\n| rex mode=sed field=file \"s/%28/(/g\"\n| rex mode=sed field=file \"s/%29/)/g\"\n| eval title = coalesce(title,file,dashboard), appName=coalesce(appName,app,app_uri)\n| rex mode=sed field=title \"s/%3A/:/g\"\n| eval ko_format=if(isnotnull(data) AND match(data,\"<definition\"),\"Dashboard Studio\",if(isnotnull(data),\"Simple XML\",\"n/a\"))\n| fields - data\n| table _time updated title type sharing owner user method source description appName ko_format actions action.email.message.alert action.email.to action.email.cc alert.expires alert.severity next_scheduled_time is_scheduled cron_schedule disabled alert_type search label\n| eval time=strftime(_time,\"%F %T\"), history=time.\" - \".method.if(isnotnull(user),\" by \".user,\"\")\n| stats latest(_time) as _time latest(method) as latestMethod latest(sharing) as latestSharing latest(ko_format) as ko_format latest(user) as deletedBy values(*) as * by title appName\n| search title=*\n| table _time updated title type sharing latestSharing owner method latestMethod deletedBy history ko_format source description appName actions action.email.message.alert action.email.to action.email.cc alert.expires alert.severity next_scheduled_time is_scheduled cron_schedule disabled alert_type search label",
+        "query": "index=\"ko_history\" NOT source=\"ko_usage\"\n```WHAT: the one search every KO panel chains off. It unions the two event streams in this index, the periodic backup snapshots and the DELETE/MOVE audit records, then collapses them to ONE row per knowledge object carrying its full version history. Usage events are excluded here and joined separately.```\n| eval type=coalesce(type, case(match(source,\"views_delete_audit\"),\"views\",match(source,\"reports_and_alerts_delete_audit\"),\"savedsearch\",match(source,\"macros_delete_audit\"),\"macro\",match(source,\"eventtypes_delete_audit\"),\"eventtype\",match(source,\"fieldextractions_delete_audit\"),\"fieldextraction\",match(source,\"lookups_delete_audit\"),\"lookup\",match(source,\"tags_delete_audit\"),\"tag\"))\n| search type=\"$koType$\"\n```APP NAME: the backup events carry appName directly, but audit events only have the REST URI, so the app has to be pulled out of it at query time. Without this the audit rows have a null appName and the table's app filter silently drops them, which looks like the delete was never captured.```\n| rex field=uri \"\\/en-\\w\\w\\/splunkd\\/__raw\\/servicesNS\\/.*?\\/(?<appName>.+?)\\/\"\n| rex field=uri \"/servicesNS/.*?\\/(?<appName>.*?)/data/ui/views/\"\n| rex field=uri \"/servicesNS/[^/]+/(?<app_uri>[^/]+)/\"\n| rex \"(?<method>updated)\"\n| rex mode=sed field=file \"s/%20/ /g\"\n| rex mode=sed field=file \"s/%3A/:/g\"\n| rex mode=sed field=file \"s/%21/!/g\"\n| rex mode=sed field=file \"s/%28/(/g\"\n| rex mode=sed field=file \"s/%29/)/g\"\n| eval title = coalesce(title,file,dashboard), appName=coalesce(appName,app,app_uri)\n| rex mode=sed field=title \"s/%3A/:/g\"\n| eval ko_format=if(isnotnull(data) AND match(data,\"<definition\"),\"Dashboard Studio\",if(isnotnull(data),\"Simple XML\",\"n/a\"))\n| fields - data\n| table _time updated title type sharing owner user method source description appName ko_format actions action.email.message.alert action.email.to action.email.cc alert.expires alert.severity next_scheduled_time is_scheduled cron_schedule disabled alert_type search label\n| eval time=strftime(_time,\"%F %T\"), history=time.\" - \".method.if(isnotnull(user),\" by \".user,\"\")\n| stats latest(_time) as _time latest(method) as latestMethod latest(sharing) as latestSharing latest(ko_format) as ko_format latest(user) as deletedBy values(*) as * by title appName\n| search title=*\n| table _time updated title type sharing latestSharing owner method latestMethod deletedBy history ko_format source description appName actions action.email.message.alert action.email.to action.email.cc alert.expires alert.severity next_scheduled_time is_scheduled cron_schedule disabled alert_type search label",
         "queryParameters": {
           "earliest": "$tp.earliest$",
           "latest": "$tp.latest$"
@@ -302,14 +308,22 @@
       "name": "Drilldown - version list",
       "options": {
         "extend": "ds_dataview",
-        "query": "| eval _epoch=_time\n| streamstats count as vn\n| eval version_no=if(vn=1,\"#\".vn.\" (latest)\",\"#\".vn)\n| eval version_time=strftime(_time,\"%F %T\")\n| eval ko_format=if(match(_raw,\"<definition\"),\"Dashboard Studio\",\"Simple XML\")\n| fillnull value=\"\u2014\" label\n| fields version_no version_time label ko_format _epoch\n| fields - _time"
+        "query": "| eval _epoch=_time\n| streamstats count as vn\n| eval version_no=if(vn=1,\"#\".vn.\" (latest)\",\"#\".vn)\n| eval version_time=strftime(_time,\"%F %T\")\n| eval ko_format=if(match(_raw,\"<definition\"),\"Dashboard Studio\",\"Simple XML\")\n| fillnull value=\"\u2013\" label\n| fields version_no version_time label ko_format _epoch\n| fields - _time"
+      }
+    },
+    "ds_version_pick": {
+      "type": "ds.chain",
+      "name": "Drilldown - version picker options",
+      "options": {
+        "extend": "ds_versions",
+        "query": "| eval pick_label=version_no . \"  \" . version_time\n| table pick_label _epoch\n| head 200"
       }
     },
     "ds_versions_ss": {
       "type": "ds.search",
       "name": "Drilldown - saved-search version list",
       "options": {
-        "query": "index=\"ko_history\" NOT source=\"ko_usage\" title=\"$drilldownTitle$\"\n| eval appName=coalesce(appName,app)\n| where type=\"$ko_realtype$\" AND appName=\"$link_app$\"\n| sort - _time\n| streamstats count as vn\n| eval version_no=if(vn=1,\"#\".vn.\" (latest)\",\"#\".vn)\n| eval version_time=strftime(_time,\"%F %T\")\n| eval _epoch=_time\n| eval _audit=if(isnull('search') OR 'search'=\"\",1,0)\n| eval schedule=case(_audit=1,\"\u2014\", 'is_scheduled'=1,coalesce(cron_schedule,\"\u2014\"), true(),\"Not scheduled\")\n| eval state=case(_audit=1,upper(coalesce(method,\"change\")), disabled=1,\"Disabled\", true(),\"Enabled\")\n| eval actions=case(_audit=1,\"\u2014\", isnull(actions) OR actions=\"\",\"\u2014\", true(),actions)\n| fields version_no version_time schedule state actions _epoch\n| fields - _time",
+        "query": "index=\"ko_history\" NOT source=\"ko_usage\" title=\"$drilldownTitle$\"\n| eval appName=coalesce(appName,app)\n| where type=\"$ko_realtype$\" AND appName=\"$link_app$\"\n| sort - _time\n| streamstats count as vn\n| eval version_no=if(vn=1,\"#\".vn.\" (latest)\",\"#\".vn)\n| eval version_time=strftime(_time,\"%F %T\")\n| eval _epoch=_time\n| eval _audit=if(isnull('search') OR 'search'=\"\",1,0)\n| eval schedule=case(_audit=1,\"\u2013\", 'is_scheduled'=1,coalesce(cron_schedule,\"\u2013\"), true(),\"Not scheduled\")\n| eval state=case(_audit=1,upper(coalesce(method,\"change\")), disabled=1,\"Disabled\", true(),\"Enabled\")\n| eval actions=case(_audit=1,\"\u2013\", isnull(actions) OR actions=\"\",\"\u2013\", true(),actions)\n| fields version_no version_time schedule state actions _epoch\n| fields - _time",
         "queryParameters": {
           "earliest": "$tp.earliest$",
           "latest": "$tp.latest$"
@@ -343,14 +357,14 @@
       "name": "Drilldown - selected vs previous source",
       "options": {
         "extend": "ds_dataview",
-        "query": "| eval _sel=tonumber(\"$time$\")\n| where isnull(_sel) OR _time<=_sel\n| head 2\n| streamstats count as _rn\n| eval role=if(_rn=1,\"target\",\"baseline\")\n| eval data=_raw, title=\"$drilldownTitle$\", app=\"$link_app$\"\n| table role title app data"
+        "query": "| eval _sel=tonumber(\"0\" . replace(\"$time$\",\"[^0-9]\",\"\"))\n| eval _new=tonumber(\"0\" . replace(\"$compare_newer$\",\"[^0-9]\",\"\"))\n| eval _old=tonumber(\"0\" . replace(\"$compare_older$\",\"[^0-9]\",\"\"))\n| eval _pick=if(_new>0 AND _old>0,1,0)\n| where _pick=0 OR _time=_new OR _time=_old\n| where _pick=1 OR _sel=0 OR _time<=_sel\n| sort - _time\n| head 2\n| streamstats count as _rn\n| eval role=if(_rn=1,\"target\",\"baseline\")\n| eval data=_raw, title=\"$drilldownTitle$\", app=\"$link_app$\"\n| table role title app data"
       }
     },
     "ds_report_card": {
       "type": "ds.search",
       "name": "Drilldown - generic KO record fields",
       "options": {
-        "query": "index=\"ko_history\" NOT source=\"ko_usage\" title=\"$drilldownTitle$\"\n| eval appName=coalesce(appName,app)\n| where type=\"$ko_realtype$\" AND appName=\"$link_app$\"\n| where NOT match(source,\"_delete_audit$\")\n| eval _sel=tonumber(\"$time$\")\n| where isnull(_sel) OR _time<=_sel\n| sort - _time\n| head 2\n| streamstats count as _rn\n| eval role=if(_rn=1,\"target\",\"baseline\")\n| table role title appName owner sharing type updated disabled is_scheduled is_visible definition args iseval priority tags color value extract_kind attribute stanza filename lookup_type collection external_cmd fields_list case_sensitive_match alert_type description search dispatch.earliest_time dispatch.latest_time cron_schedule realtime_schedule next_scheduled_time schedule_window schedule_priority actions action.email.to action.email.cc action.email.bcc action.email.from action.email.subject action.email.message.alert action.email.sendresults action.email.inline action.script.filename action.webhook.param.url action.summary_index._name action.summary_index.* alert_comparator alert_threshold alert_condition alert.severity alert.expires alert.track alert.digest_mode alert.suppress alert.suppress.fields alert.suppress.period",
+        "query": "index=\"ko_history\" NOT source=\"ko_usage\" title=\"$drilldownTitle$\"\n| eval appName=coalesce(appName,app)\n| where type=\"$ko_realtype$\" AND appName=\"$link_app$\"\n| where NOT match(source,\"_delete_audit$\")\n| eval _sel=tonumber(\"0\" . replace(\"$time$\",\"[^0-9]\",\"\"))\n| eval _new=tonumber(\"0\" . replace(\"$compare_newer$\",\"[^0-9]\",\"\"))\n| eval _old=tonumber(\"0\" . replace(\"$compare_older$\",\"[^0-9]\",\"\"))\n| eval _pick=if(_new>0 AND _old>0,1,0)\n| where _pick=0 OR _time=_new OR _time=_old\n| where _pick=1 OR _sel=0 OR _time<=_sel\n| sort - _time\n| head 2\n| streamstats count as _rn\n| eval role=if(_rn=1,\"target\",\"baseline\")\n| table role title appName owner sharing type updated disabled is_scheduled is_visible definition args iseval priority tags color value extract_kind attribute stanza filename lookup_type collection external_cmd fields_list case_sensitive_match alert_type description search dispatch.earliest_time dispatch.latest_time cron_schedule realtime_schedule next_scheduled_time schedule_window schedule_priority actions action.email.to action.email.cc action.email.bcc action.email.from action.email.subject action.email.message.alert action.email.sendresults action.email.inline action.script.filename action.webhook.param.url action.summary_index._name action.summary_index.* alert_comparator alert_threshold alert_condition alert.severity alert.expires alert.track alert.digest_mode alert.suppress alert.suppress.fields alert.suppress.period",
         "queryParameters": {
           "earliest": "$tp.earliest$",
           "latest": "$tp.latest$"
@@ -401,6 +415,62 @@
       "options": {
         "defaultValue": "*",
         "token": "searchForDashboard"
+      }
+    },
+    "input_compare_newer": {
+      "type": "input.dropdown",
+      "title": "Compare this version",
+      "dataSources": {
+        "primary": "ds_version_pick"
+      },
+      "options": {
+        "items": [
+          {
+            "label": "Auto: the version you clicked",
+            "value": "auto"
+          }
+        ],
+        "defaultValue": "auto",
+        "token": "compare_newer"
+      },
+      "encoding": {
+        "label": "primary.pick_label",
+        "value": "primary._epoch"
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_has_selection"
+          ]
+        }
+      }
+    },
+    "input_compare_older": {
+      "type": "input.dropdown",
+      "title": "against this one",
+      "dataSources": {
+        "primary": "ds_version_pick"
+      },
+      "options": {
+        "items": [
+          {
+            "label": "Auto: the version before it",
+            "value": "auto"
+          }
+        ],
+        "defaultValue": "auto",
+        "token": "compare_older"
+      },
+      "encoding": {
+        "label": "primary.pick_label",
+        "value": "primary._epoch"
+      },
+      "containerOptions": {
+        "visibility": {
+          "showConditions": [
+            "cond_has_selection"
+          ]
+        }
       }
     },
     "input_app": {
@@ -541,7 +611,11 @@
             "tokens": [
               {
                 "token": "kpi_filter",
-                "value": "latestMethod=\"DELETE\""
+                "value": "*"
+              },
+              {
+                "token": "DeletedToken",
+                "value": "DELETE"
               }
             ]
           }
@@ -670,7 +744,11 @@
             "tokens": [
               {
                 "token": "kpi_filter",
-                "value": "latestMethod=\"MOVE\""
+                "value": "*"
+              },
+              {
+                "token": "DeletedToken",
+                "value": "move"
               }
             ]
           }
@@ -690,7 +768,7 @@
     "viz_link_label": {
       "type": "splunk.markdown",
       "options": {
-        "markdown": "**Selected:** $link_title$ \u00b7 app: $link_app$ \u00b7 type: $ko_class$ \u00b7 older: $time$"
+        "markdown": "**Selected:** $link_title$ \u00b7 app: $link_app$ \u00b7 type: $ko_class$ \u00b7 inspecting: $time$"
       }
     },
     "viz_link": {
@@ -702,7 +780,7 @@
     },
     "viz_table": {
       "type": "splunk.table",
-      "title": "Knowledge objects \u00b7 app: $selectApp$ \u2014 click a row to inspect version history",
+      "title": "Knowledge objects \u00b7 app: $selectApp$. Click a row to inspect version history",
       "dataSources": {
         "primary": "ds_table"
       },
@@ -835,7 +913,7 @@
     },
     "viz_table_reports": {
       "type": "splunk.table",
-      "title": "Reports & alerts \u00b7 app: $selectApp$ \u2014 click a row to inspect version history",
+      "title": "Reports & alerts \u00b7 app: $selectApp$. Click a row to inspect version history",
       "dataSources": {
         "primary": "ds_table_reports"
       },
@@ -968,7 +1046,7 @@
     },
     "viz_table_macros": {
       "type": "splunk.table",
-      "title": "Macros \u00b7 app: $selectApp$ \u2014 click a row to inspect version history",
+      "title": "Macros \u00b7 app: $selectApp$. Click a row to inspect version history",
       "dataSources": {
         "primary": "ds_table_macros"
       },
@@ -1101,7 +1179,7 @@
     },
     "viz_table_eventtypes": {
       "type": "splunk.table",
-      "title": "Event types \u00b7 app: $selectApp$ \u2014 click a row to inspect version history",
+      "title": "Event types \u00b7 app: $selectApp$. Click a row to inspect version history",
       "dataSources": {
         "primary": "ds_table_eventtypes"
       },
@@ -1234,7 +1312,7 @@
     },
     "viz_table_fieldextractions": {
       "type": "splunk.table",
-      "title": "Field extractions \u00b7 app: $selectApp$ \u2014 click a row to inspect version history",
+      "title": "Field extractions \u00b7 app: $selectApp$. Click a row to inspect version history",
       "dataSources": {
         "primary": "ds_table_fieldextractions"
       },
@@ -1367,7 +1445,7 @@
     },
     "viz_table_lookups": {
       "type": "splunk.table",
-      "title": "Lookups \u00b7 app: $selectApp$ \u2014 click a row to inspect version history",
+      "title": "Lookups \u00b7 app: $selectApp$. Click a row to inspect version history",
       "dataSources": {
         "primary": "ds_table_lookups"
       },
@@ -1500,7 +1578,7 @@
     },
     "viz_table_tags": {
       "type": "splunk.table",
-      "title": "Tags \u00b7 app: $selectApp$ \u2014 click a row to inspect version history",
+      "title": "Tags \u00b7 app: $selectApp$. Click a row to inspect version history",
       "dataSources": {
         "primary": "ds_table_tags"
       },
@@ -1633,7 +1711,8 @@
     },
     "viz_versions": {
       "type": "splunk.table",
-      "title": "Versions of \"$drilldownTitle$\" in $link_app$ \u2014 newest first; click a row to diff against the older version",
+      "title": "Versions of \"$drilldownTitle$\" in $link_app$. Newest first.",
+      "description": "Click a row to see what that edit changed",
       "dataSources": {
         "primary": "ds_versions"
       },
@@ -1664,7 +1743,8 @@
     },
     "viz_versions_ss": {
       "type": "splunk.table",
-      "title": "Versions of \"$drilldownTitle$\" in $link_app$ \u2014 newest first; click a row to inspect",
+      "title": "Versions of \"$drilldownTitle$\" in $link_app$. Newest first.",
+      "description": "Click a row to see what that edit changed",
       "dataSources": {
         "primary": "ds_versions_ss"
       },
@@ -1695,7 +1775,8 @@
     },
     "viz_versions_generic": {
       "type": "splunk.table",
-      "title": "Versions of \"$drilldownTitle$\" in $link_app$ \u2014 newest first; click a row to inspect",
+      "title": "Versions of \"$drilldownTitle$\" in $link_app$. Newest first.",
+      "description": "Click a row to see what that edit changed",
       "dataSources": {
         "primary": "ds_versions_generic"
       },
@@ -1726,7 +1807,7 @@
     },
     "viz_timeline": {
       "type": "splunk.column",
-      "title": "Edit history \u2014 actions over time",
+      "title": "Edit history: actions over time",
       "dataSources": {
         "primary": "ds_timeline"
       },
@@ -1750,7 +1831,7 @@
     },
     "viz_source": {
       "type": "ko_history.source_viewer",
-      "title": "Source & diff \u2014 selected version vs older",
+      "title": "Source & diff. Newer version on the right; use the Compare version dropdowns to pick any two",
       "dataSources": {
         "primary": "ds_source"
       },
@@ -1764,7 +1845,7 @@
     },
     "viz_report_card": {
       "type": "ko_history.ko_viewer",
-      "title": "Record \u2014 $drilldownTitle$",
+      "title": "Record: $drilldownTitle$. Newer version on the right; use the Compare version dropdowns to pick any two",
       "dataSources": {
         "primary": "ds_report_card"
       },
@@ -2124,7 +2205,7 @@
         "position": {
           "x": 0,
           "y": 170,
-          "w": 1140,
+          "w": 1145,
           "h": 230
         }
       },
@@ -2134,7 +2215,7 @@
         "position": {
           "x": 1160,
           "y": 170,
-          "w": 760,
+          "w": 745,
           "h": 230
         }
       },
@@ -2164,7 +2245,7 @@
         "position": {
           "x": 0,
           "y": 480,
-          "w": 1920,
+          "w": 1905,
           "h": 520
         }
       },
@@ -2174,7 +2255,7 @@
         "position": {
           "x": 0,
           "y": 480,
-          "w": 1920,
+          "w": 1905,
           "h": 520
         }
       },
@@ -2184,7 +2265,7 @@
         "position": {
           "x": 0,
           "y": 480,
-          "w": 1920,
+          "w": 1905,
           "h": 520
         }
       },
@@ -2194,7 +2275,7 @@
         "position": {
           "x": 0,
           "y": 480,
-          "w": 1920,
+          "w": 1905,
           "h": 520
         }
       },
@@ -2204,7 +2285,7 @@
         "position": {
           "x": 0,
           "y": 480,
-          "w": 1920,
+          "w": 1905,
           "h": 520
         }
       },
@@ -2214,7 +2295,7 @@
         "position": {
           "x": 0,
           "y": 480,
-          "w": 1920,
+          "w": 1905,
           "h": 520
         }
       },
@@ -2224,7 +2305,7 @@
         "position": {
           "x": 0,
           "y": 480,
-          "w": 1920,
+          "w": 1905,
           "h": 520
         }
       },
@@ -2234,7 +2315,7 @@
         "position": {
           "x": 0,
           "y": 1020,
-          "w": 1920,
+          "w": 1905,
           "h": 200
         }
       },
@@ -2269,13 +2350,33 @@
         }
       },
       {
+        "item": "input_compare_newer",
+        "type": "input",
+        "position": {
+          "x": 660,
+          "y": 1240,
+          "w": 610,
+          "h": 80
+        }
+      },
+      {
+        "item": "input_compare_older",
+        "type": "input",
+        "position": {
+          "x": 1295,
+          "y": 1240,
+          "w": 610,
+          "h": 80
+        }
+      },
+      {
         "item": "viz_source",
         "type": "block",
         "position": {
           "x": 660,
-          "y": 1240,
-          "w": 1260,
-          "h": 760
+          "y": 1335,
+          "w": 1245,
+          "h": 665
         }
       },
       {
@@ -2283,9 +2384,9 @@
         "type": "block",
         "position": {
           "x": 660,
-          "y": 1240,
-          "w": 1260,
-          "h": 760
+          "y": 1335,
+          "w": 1245,
+          "h": 665
         }
       },
       {
@@ -2294,7 +2395,7 @@
         "position": {
           "x": 1000,
           "y": 410,
-          "w": 920,
+          "w": 905,
           "h": 60
         }
       },
@@ -2304,7 +2405,7 @@
         "position": {
           "x": 1000,
           "y": 410,
-          "w": 920,
+          "w": 905,
           "h": 60
         }
       },
@@ -2314,7 +2415,7 @@
         "position": {
           "x": 1000,
           "y": 410,
-          "w": 920,
+          "w": 905,
           "h": 60
         }
       },
@@ -2324,7 +2425,7 @@
         "position": {
           "x": 1000,
           "y": 410,
-          "w": 920,
+          "w": 905,
           "h": 60
         }
       },
@@ -2334,7 +2435,7 @@
         "position": {
           "x": 1000,
           "y": 410,
-          "w": 920,
+          "w": 905,
           "h": 60
         }
       },
@@ -2344,7 +2445,7 @@
         "position": {
           "x": 1000,
           "y": 410,
-          "w": 920,
+          "w": 905,
           "h": 60
         }
       },
@@ -2354,7 +2455,7 @@
         "position": {
           "x": 1000,
           "y": 410,
-          "w": 920,
+          "w": 905,
           "h": 60
         }
       }

@@ -18,13 +18,48 @@
  *   label— short text for the badge
  */
 
+// `glow` is a ready-to-use CSS color (or color-with-alpha) for the inset
+// box-shadow — carried explicitly rather than synthesized by string-concatenating
+// an alpha suffix onto `border`, because that only works for hex colors (the
+// defaults below); OKLCH/rgb overrides need their own alpha-bearing value.
 const KIND = {
-    added: { border: '#46aa5a', label: 'ADDED' },
-    moved: { border: '#d6b35a', label: 'MOVED' },
-    retitled: { border: '#5ca5d6', label: 'RETITLED' },
-    removed: { border: '#e0505a', label: 'REMOVED' },
-    changed: { border: '#d6b35a', label: 'CHANGED' },
+    added: { border: '#46aa5a', glow: '#46aa5a22', label: 'ADDED' },
+    moved: { border: '#d6b35a', glow: '#d6b35a22', label: 'MOVED' },
+    retitled: { border: '#5ca5d6', glow: '#5ca5d622', label: 'RETITLED' },
+    removed: { border: '#e0505a', glow: '#e0505a22', label: 'REMOVED' },
+    changed: { border: '#d6b35a', glow: '#d6b35a22', label: 'CHANGED' },
 };
+
+// Merge an optional kind→color override map over the defaults, keeping each
+// kind's label untouched. Returns KIND itself when no overrides are given, so
+// callers that omit `colors` behave identically to before this was added.
+// Each override may be a plain color string (legacy shape: hex only, so the
+// glow can be synthesized by appending an alpha suffix) or a { border, glow }
+// pair (current shape: glow is carried as-is).
+//
+// Appending an alpha suffix is ONLY valid for hex. Doing it to an OKLCH string
+// produces an invalid color, and a single invalid color voids the entire CSS
+// declaration it appears in, silently dropping the highlight box. So a pair
+// without an explicit `glow` falls back to the default glow rather than
+// synthesizing one from a border whose format is unknown.
+function buildColorMap(overrides) {
+    if (!overrides) return KIND;
+    const map = {};
+    Object.keys(KIND).forEach((k) => {
+        const o = overrides[k];
+        if (!o) { map[k] = KIND[k]; return; }
+        if (typeof o === 'string') {
+            map[k] = { border: o, glow: o + '22', label: KIND[k].label };
+        } else {
+            map[k] = {
+                border: o.border || KIND[k].border,
+                glow: o.glow || KIND[k].glow,
+                label: KIND[k].label,
+            };
+        }
+    });
+    return map;
+}
 
 function ensureStyle(doc) {
     if (doc.getElementById('koov-hl-style')) return;
@@ -57,8 +92,8 @@ function findCanvasRoot(doc, cw, ch) {
 
 // Draw a box + badge at canvas coordinates inside the (transform-scaled) canvas
 // root — the box scales with the dashboard automatically.
-function decorateCoord(doc, root, ch) {
-    const col = KIND[ch.kind] || KIND.changed;
+function decorateCoord(doc, root, ch, colorMap) {
+    const col = (colorMap || KIND)[ch.kind] || (colorMap || KIND).changed;
     const box = doc.createElement('div');
     box.className = 'koov-hl koov-hl--abs';
     box.style.left = ch.x + 'px';
@@ -67,7 +102,7 @@ function decorateCoord(doc, root, ch) {
     box.style.height = ch.h + 'px';
     box.style.borderColor = col.border;
     box.style.borderStyle = ch.kind === 'removed' ? 'dashed' : 'solid';
-    box.style.boxShadow = 'inset 0 0 24px ' + col.border + '22';
+    box.style.boxShadow = 'inset 0 0 24px ' + col.glow;
     root.appendChild(box);
     const badge = doc.createElement('div');
     badge.className = 'koov-hl koov-hl--badge';
@@ -139,14 +174,14 @@ function matchPanel(panels, ch, doc) {
     return null;
 }
 
-function decorate(doc, node, ch) {
+function decorate(doc, node, ch, colorMap) {
     const cs = (doc.defaultView || window).getComputedStyle(node);
     if (cs && cs.position === 'static') node.style.position = 'relative';
-    const col = KIND[ch.kind] || KIND.changed;
+    const col = (colorMap || KIND)[ch.kind] || (colorMap || KIND).changed;
     const box = doc.createElement('div');
     box.className = 'koov-hl koov-hl--box';
     box.style.borderColor = col.border;
-    box.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.25), inset 0 0 18px ' + col.border + '33';
+    box.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.25), inset 0 0 18px ' + col.glow;
     node.appendChild(box);
     const badge = doc.createElement('div');
     badge.className = 'koov-hl koov-hl--badge';
@@ -171,10 +206,11 @@ export function clearHighlights(iframe) {
 
 // Poll the iframe until its panels render, inject boxes, and keep them until
 // stopped. Returns a stop() that clears the boxes. DS renders async, so we retry.
-export function startHighlightPoll(iframe, changes, opts, onReport) {
+export function startHighlightPoll(iframe, changes, opts, onReport, colors) {
     opts = opts || {};
     let timer = null, tries = 0, last = -1, stable = 0;
     const maxTries = 25;
+    const colorMap = buildColorMap(colors);
     const report = (r) => { if (typeof onReport === 'function') { try { onReport(r); } catch (e) { /* */ } } };
 
     function tryInject() {
@@ -194,7 +230,7 @@ export function startHighlightPoll(iframe, changes, opts, onReport) {
                 if (cs && cs.position === 'static') root.style.position = 'relative';
                 let injected = 0;
                 for (let i = 0; i < changes.length; i++) {
-                    if (typeof changes[i].x === 'number') { decorateCoord(doc, root, changes[i]); injected++; }
+                    if (typeof changes[i].x === 'number') { decorateCoord(doc, root, changes[i], colorMap); injected++; }
                 }
                 return { done: true, count: injected, found: 1, selector: 'canvas ' + opts.canvasW + '×' + opts.canvasH };
             }
@@ -208,7 +244,7 @@ export function startHighlightPoll(iframe, changes, opts, onReport) {
         let injected = 0;
         for (let i = 0; i < changes.length; i++) {
             const node = matchPanel(fp.panels, changes[i], doc);
-            if (node) { decorate(doc, node, changes[i]); injected++; }
+            if (node) { decorate(doc, node, changes[i], colorMap); injected++; }
         }
         return { done: true, count: injected, found: fp.panels.length, selector: fp.selector };
     }

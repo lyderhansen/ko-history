@@ -139,6 +139,11 @@ define([
         return svg;
     }
 
+    // Must live ABOVE the return: everything after it is unreachable.
+    // A `var` down there hoists as undefined and never assigns.
+    var _spl = require('../../../../../src/shared/splHighlight.js');
+    var _lineDiffCore = require('../../../../../src/shared/lineDiff.js');
+
     return SplunkVisualizationBase.extend({
 
         initialize: function () {
@@ -199,7 +204,7 @@ define([
                 this.root.className = 'korc korc--' + c.theme;
                 this.root.innerHTML = '';
                 this.root.appendChild(el('div', 'korc__empty',
-                    'Awaiting data — provide a knowledge-object result row (title + its config fields).'));
+                    'Awaiting data. Provide a knowledge-object result row (title + its config fields).'));
                 return;
             }
 
@@ -332,7 +337,7 @@ define([
                 r.appendChild(el('div', 'korc__k', ch.name));
                 var v = el('div', 'korc__v korc__dv ' + ch.status);
                 if (ch.status === 'add') {
-                    v.appendChild(el('span', 'korc__dmut', '—'));
+                    v.appendChild(el('span', 'korc__dmut', '–'));
                     v.appendChild(el('span', 'korc__darrow2', ' → '));
                     v.appendChild(el('span', 'korc__dnow', ch.latest));
                 } else if (ch.status === 'del') {
@@ -398,7 +403,7 @@ define([
             var hid = el('div', 'korc__hid');
             hid.appendChild(el('div', 'korc__title', title));
             var sub = el('div', 'korc__sub');
-            sub.appendChild(this._kv('app', app || '—'));
+            sub.appendChild(this._kv('app', app || '–'));
             if (f('owner')) sub.appendChild(this._sep()), sub.appendChild(this._kv('owner', f('owner')));
             if (f('sharing')) sub.appendChild(this._sep()), sub.appendChild(this._kv('sharing', f('sharing')));
             if (f('updated')) sub.appendChild(this._sep()), sub.appendChild(this._kv('updated', f('updated')));
@@ -589,7 +594,7 @@ define([
         _miniSeal: function (t, cls) { var s = el('span', 'korc__seal ' + cls + ' mini'); s.appendChild(el('span', 'dot')); s.appendChild(document.createTextNode(t)); return s; },
         _range: function (e, l) {
             var s = el('span');
-            s.appendChild(document.createTextNode('earliest ')); s.appendChild(this._code(e || '—'));
+            s.appendChild(document.createTextNode('earliest ')); s.appendChild(this._code(e || '–'));
             s.appendChild(document.createTextNode('  →  latest ')); s.appendChild(this._code(l || 'now'));
             return s;
         },
@@ -646,7 +651,6 @@ define([
     // ── LCS line diff (previous a → latest b) → ordered op list of
     // ['eq'|'del'|'add', text]. Shared engine (prefix/suffix trim, Int32Array,
     // graceful block-replace). See ko_history/src/shared/lineDiff.js.
-    var _lineDiffCore = require('../../../../../src/shared/lineDiff.js');
 
     function diffOps(a, b) {
         var result = _lineDiffCore(a, b);
@@ -666,19 +670,19 @@ define([
     // Matches Splunk's search-bar scheme: strings (red) | pipe-commands (teal) |
     // functions = identifier before '(' (purple) | operator keywords AS/BY/OR/
     // AND/NOT/IN/OUTPUT (orange) | numbers. Single pass — never re-matches markup.
+    // SPL tokenizing lives in ko_history/src/shared/splHighlight.js so this viz
+    // and the React wrapper cannot drift on what counts as a command or a
+    // string. Here the tokens become spans with CSS classes (.t-cmd, .t-fn,
+    // ...) styled by visualization.css; the wrapper renders the same tokens
+    // with inline palette colors instead.
     function highlightSpl(line) {
-        var re = /("[^"]*")|(\|\s*[A-Za-z_]+)|([A-Za-z_]\w*)(?=\s*\()|\b(AS|BY|OR|AND|NOT|IN|OUTPUT(?:NEW)?)\b|(-?\b\d+(?:\.\d+)?\b)/gi;
-        var out = '', last = 0, m;
-        while ((m = re.exec(line)) !== null) {
-            if (m.index > last) out += esc(line.slice(last, m.index));
-            if (m[1]) out += '<span class="t-str">' + esc(m[1]) + '</span>';
-            else if (m[2]) out += '<span class="t-cmd">' + esc(m[2]) + '</span>';
-            else if (m[3]) out += '<span class="t-fn">' + esc(m[3]) + '</span>';
-            else if (m[4]) out += '<span class="t-kw">' + esc(m[4]) + '</span>';
-            else out += '<span class="t-num">' + esc(m[5]) + '</span>';
-            last = m.index + m[0].length;
+        var toks = _spl.tokenizeSpl(line);
+        var out = '';
+        for (var i = 0; i < toks.length; i++) {
+            var t = toks[i];
+            if (t.kind === 'text') out += esc(t.text);
+            else out += '<span class="t-' + t.kind + '">' + esc(t.text) + '</span>';
         }
-        out += esc(line.slice(last));
         return out;
     }
 

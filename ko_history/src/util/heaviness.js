@@ -170,7 +170,7 @@ export function analyze(raw) {
 
     let note = '';
     if (sawToken && range.kind !== 'realtime' && range.kind !== 'alltime') {
-        note = 'Some time ranges are set by inputs at runtime — actual cost may be higher.';
+        note = 'Some time ranges are set by inputs at runtime, so actual cost may be higher.';
     }
 
     return { format: base.format, panels: base.panels, searches: base.searches, dataSources: base.dataSources, range, flags, level, note };

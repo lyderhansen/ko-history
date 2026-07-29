@@ -10,6 +10,7 @@
  */
 
 import { parseExtractionTitle, tagNames, parseLookupDefinition } from './koRestoreParse';
+import { runJob } from './searchJob';
 
 // Slots and searches always target THIS app. Never user-configurable.
 export const PREVIEW_APP = 'ko_history';
@@ -116,31 +117,41 @@ export function splQuote(s) {
     return '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 }
 
-// Run a blocking oneshot search and return the result rows (array of objects).
+// Run a search and return the result rows (array of objects).
+//
+// Dispatched as a normal (async) job and polled to completion rather than
+// exec_mode=oneshot. A oneshot blocks server-side, and fetch has no default
+// timeout, so a slow search used to leave this promise pending forever: the
+// wrapper's spinner never resolved and re-selecting the KO (which aborts and
+// re-issues) appeared to "fix" it. The state machine lives in searchJob.js.
+//
+// Signature and resolved shape are unchanged; every existing caller is
+// unaffected, including `opts.signal` aborts.
 export function oneshot(search, opts) {
     const o = opts || {};
     const earliest = o.earliest != null ? o.earliest : '0';
     const latest = o.latest != null ? o.latest : 'now';
     const count = o.count != null ? o.count : 0;
-    const url =
-        rawUrl('/servicesNS/nobody/' + encodeURIComponent(PREVIEW_APP) + '/search/jobs') + '?output_mode=json';
+    const base = '/servicesNS/nobody/' + encodeURIComponent(PREVIEW_APP) + '/search/jobs';
     const spl = search.trim().charAt(0) === '|' ? search : 'search ' + search;
-    const body = encodeForm({
-        search: spl,
-        exec_mode: 'oneshot',
-        output_mode: 'json',
-        earliest_time: earliest,
-        latest_time: latest,
-        count: count,
+    return runJob({
+        fetchImpl: (url, init) => fetch(url, init),
+        sleep: (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
+        headers: headers(),
+        signal: o.signal,
+        createUrl: rawUrl(base) + '?output_mode=json',
+        createBody: encodeForm({
+            search: spl,
+            exec_mode: 'normal',
+            output_mode: 'json',
+            earliest_time: earliest,
+            latest_time: latest,
+        }),
+        jobUrlFor: (sid) => rawUrl(base + '/' + encodeURIComponent(sid)) + '?output_mode=json',
+        // count=0 means "all rows", matching the previous oneshot behavior.
+        resultsUrlFor: (sid) =>
+            rawUrl(base + '/' + encodeURIComponent(sid) + '/results') + '?output_mode=json&count=' + count,
     });
-    const fetchOpts = { method: 'POST', credentials: 'same-origin', headers: headers(), body };
-    if (o.signal) fetchOpts.signal = o.signal;
-    return fetch(url, fetchOpts)
-        .then((r) => {
-            if (!r.ok) return r.text().then((t) => Promise.reject(new Error('search HTTP ' + r.status + ' ' + t.slice(0, 200))));
-            return r.json();
-        })
-        .then((j) => (j && j.results ? j.results : []));
 }
 
 // Create-or-overwrite a view with the given dashboard XML (eai:data envelope).

@@ -224,5 +224,17 @@
         return lines;
     }
 
-    return { detect: detect, jsonLines: jsonLines, xmlLines: xmlLines, esc: esc, escHtml: esc };
+    // Shared render-cap decision. Long listings are capped so a huge KO can't
+    // lock the browser building tens of thousands of DOM nodes; "show all"
+    // lifts the cap. Kept here so the viz, the React SourceView, and the tests
+    // all exercise ONE implementation: a test that re-derives this logic would
+    // still pass if a caller dropped its cap entirely.
+    var RENDER_CAP = 4000;
+    function renderCap(total, expandAll, cap) {
+        var limit = expandAll ? Infinity : (cap || RENDER_CAP);
+        return { limit: limit, shown: Math.min(total, limit), truncated: total > limit };
+    }
+
+    return { detect: detect, jsonLines: jsonLines, xmlLines: xmlLines, esc: esc, escHtml: esc,
+        renderCap: renderCap, RENDER_CAP: RENDER_CAP };
 }));

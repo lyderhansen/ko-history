@@ -295,7 +295,7 @@ export default function VersionTimeline({ versions, fmtTime }) {
                 <input type="range" min={0} max={Math.max(0, n - 1)} value={idx} onChange={(e) => { setPlaying(false); setIdx(Number(e.target.value)); }} style={{ flex: 1, minWidth: 160, accentColor: '#4fa7d6' }} />
                 <button type="button" style={btn('#2a2d31')} disabled={atEnd} onClick={() => setIdx((i) => Math.min(n - 1, i + 1))}>▶</button>
                 <div style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontSize: 13 }}>
-                    <b>v{idx + 1}</b>/{n} · {fmtTime ? fmtTime(ver._time) : ''} <span style={{ color: '#9aa0a6' }}>· {ver.method || '—'}</span>
+                    <b>v{idx + 1}</b>/{n} · {fmtTime ? fmtTime(ver._time) : ''} <span style={{ color: '#9aa0a6' }}>· {ver.method || '–'}</span>
                 </div>
             </div>
 
@@ -329,7 +329,7 @@ export default function VersionTimeline({ versions, fmtTime }) {
                         <Card
                             frame={frames[c.i]}
                             scale={scaleBox}
-                            label={`${fmtTime ? fmtTime(versionsOldFirst[c.i]._time) : ''} · ${versionsOldFirst[c.i].method || '—'}`}
+                            label={`${fmtTime ? fmtTime(versionsOldFirst[c.i]._time) : ''} · ${versionsOldFirst[c.i].method || '–'}`}
                             color={c.depth === 0}
                             detailed={c.depth <= GLYPH_DEPTH}
                             diff={c.depth === 0 ? d : null}
@@ -348,7 +348,7 @@ export default function VersionTimeline({ versions, fmtTime }) {
                     </span>
                 ))}
                 <span style={{ flex: 1 }} />
-                <span>Structural render from stored source — no searches run.</span>
+                <span>Structural render from stored source. No searches run.</span>
             </div>
         </div>
     );

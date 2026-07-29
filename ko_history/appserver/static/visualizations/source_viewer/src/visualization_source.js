@@ -50,6 +50,7 @@ define([
     var detect    = _sourceLines.detect;
     var jsonLines = _sourceLines.jsonLines;
     var xmlLines  = _sourceLines.xmlLines;
+    var renderCap = _sourceLines.renderCap;
     var esc       = _sourceLines.esc;
 
     // ── tiny DOM helpers ──────────────────────────────────────
@@ -217,7 +218,7 @@ define([
                 this.root.className = 'kojv kojv--' + c.theme +
                     (c.wrap ? ' kojv--wrap' : '') + (c.banding ? ' kojv--banded' : '');
                 this.root.innerHTML = '';
-                this.root.appendChild(el('div', 'kojv__empty', 'Awaiting data — provide a result row with a source column.'));
+                this.root.appendChild(el('div', 'kojv__empty', 'Awaiting data. Provide a result row with a source column.'));
                 return;
             }
             if (data.colIdx[c.dataField] === undefined) {
@@ -352,8 +353,7 @@ define([
             this._maxDepth = 0;      // deepest foldable nesting level
             this._shownDepth = -1;   // current "collapse to level" state; -1 = fully expanded
 
-            var RENDER_CAP = 4000;
-            var cap = this._expandAll ? Infinity : RENDER_CAP;
+            var cap = renderCap(lines.length, this._expandAll).limit;
             var self = this;
             for (var i = 0; i < lines.length && i < cap; i++) {
                 var L = lines[i];
@@ -390,7 +390,7 @@ define([
                 capNotice.setAttribute('role', 'button');
                 capNotice.setAttribute('tabindex', '0');
                 capNotice.appendChild(el('span', 'kojv__code',
-                    'truncated — showing first 4,000 of ' + lines.length.toLocaleString() + ' lines · click to show all'));
+                    'truncated: showing first 4,000 of ' + lines.length.toLocaleString() + ' lines · click to show all'));
                 capNotice.addEventListener('click', function () {
                     self._expandAll = true;
                     self._render(self._listingRaw, self._listingTitle, self._listingApp, self._listingC);
@@ -409,7 +409,7 @@ define([
             // Per-level collapsing: −/+ change how many nesting levels are shown,
             // one layer at a time; All/None are the extremes.
             if (foldSlot) {
-                var self = this;
+                // `self` is already bound above, at the top of this same function.
                 var levelLbl = el('span', 'kojv__foldlevel', '');
                 this._levelLbl = levelLbl;
                 var bMinus = el('button', null, '−');   // − collapse one more (deepest) level
@@ -617,7 +617,7 @@ define([
             if (!body) return;
             body.innerHTML = '';
             var ops = this._diffOps, i;
-            var cap = this._expandAll ? Infinity : 4000;
+            var cap = renderCap(this._diffOps.length, this._expandAll).limit;
             var self = this;
 
             // shared factory for the click-to-expand truncation control
@@ -626,7 +626,7 @@ define([
                 r.setAttribute('role', 'button');
                 r.setAttribute('tabindex', '0');
                 r.appendChild(el('span', 'kojv__code',
-                    'truncated — showing first 4,000 of ' + total.toLocaleString() + ' lines · click to show all'));
+                    'truncated: showing first 4,000 of ' + total.toLocaleString() + ' lines · click to show all'));
                 r.addEventListener('click', function () { self._expandAll = true; self._drawDiffBody(); });
                 r.addEventListener('keydown', function (e) {
                     if (e.key === 'Enter' || e.keyCode === 13) { self._expandAll = true; self._drawDiffBody(); }

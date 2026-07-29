@@ -34,11 +34,22 @@ fi
 echo "=== Building $APP_NAME v$VERSION ==="
 echo ""
 
-# 1) Build every custom-viz bundle under appserver/static/visualizations/*.
+# 1) Build every REGISTERED custom-viz bundle under appserver/static/visualizations/*.
+#    Registration = a stanza in default/visualizations.conf. An unregistered
+#    directory is build residue of a removed viz (git no longer tracks it, but
+#    the files can linger in a working tree). Building it wastes minutes on
+#    npm ci and — worse — regenerates chunk files that then get PACKAGED,
+#    silently re-bloating the release (v1.0.3 shrank the app from 13.2 MB to
+#    0.96 MB precisely by removing such a viz).
 VIZ_BASE="$APP_DIR/appserver/static/visualizations"
+VIZ_CONF="$APP_DIR/default/visualizations.conf"
 for vd in "$VIZ_BASE"/*/; do
     [ -f "$vd/package.json" ] || continue
     VIZ_NAME=$(basename "$vd")
+    if ! grep -q "^\[$VIZ_NAME\]" "$VIZ_CONF" 2>/dev/null; then
+        echo "[viz: $VIZ_NAME] SKIPPED — no [$VIZ_NAME] stanza in visualizations.conf (build residue)."
+        continue
+    fi
     # --- E5: prune stale chunk files before rebuild ----------------------
     # output.path for these vizs equals the viz dir itself (source + output
     # co-located), so webpack's output.clean:true would nuke src/ etc.
@@ -112,6 +123,17 @@ fi
 echo "Packaging $TARBALL..."
 
 TAR_FLAGS=()
+# Collect exclude flags for any viz dir that has no visualizations.conf stanza.
+UNREGISTERED_VIZ_EXCLUDES=()
+for vd in "$VIZ_BASE"/*/; do
+    [ -d "$vd" ] || continue
+    vname=$(basename "$vd")
+    if ! grep -q "^\[$vname\]" "$VIZ_CONF" 2>/dev/null; then
+        UNREGISTERED_VIZ_EXCLUDES+=(--exclude="$APP_NAME/appserver/static/visualizations/$vname")
+        echo "[package] excluding unregistered viz dir: $vname"
+    fi
+done
+
 if [[ "$(uname)" == "Darwin" ]]; then
     xattr -rc "$APP_DIR" 2>/dev/null || true
     export COPYFILE_DISABLE=1
@@ -120,6 +142,16 @@ fi
 
 EXCLUDE_FLAGS=(
     --exclude='.*' --exclude='._*' --exclude='__MACOSX'
+    # Unregistered viz directories (build residue of removed vizs): belt and
+    # braces with the build-loop skip above, so residue can never be packaged
+    # even if its bundles were produced by some other means.
+    #
+    # The ${arr[@]+"${arr[@]}"} form is required, not stylistic. bash 3.2 (the
+    # /bin/bash on every macOS) treats an empty-array expansion as an unset
+    # variable under `set -u`, so a plain "${UNREGISTERED_VIZ_EXCLUDES[@]}"
+    # aborts the build with 'unbound variable' in the normal case where every
+    # viz is registered and the array is empty.
+    ${UNREGISTERED_VIZ_EXCLUDES[@]+"${UNREGISTERED_VIZ_EXCLUDES[@]}"}
     # custom-viz build inputs
     --exclude="$APP_NAME/appserver/static/visualizations/*/node_modules"
     --exclude="$APP_NAME/appserver/static/visualizations/*/src"
@@ -142,7 +174,6 @@ EXCLUDE_FLAGS=(
     --exclude="$APP_NAME/appserver/static/appIconAlt.png"
     --exclude="$APP_NAME/appserver/static/appIconAlt_2x.png"
     # Developer test/scratch views — kept in git as harnesses, not shipped.
-    # ko_rest_explorer.xml is nav-linked and stays in the package.
     --exclude="$APP_NAME/default/data/ui/views/ko_diff_test.xml"
     --exclude="$APP_NAME/default/data/ui/views/ko_diff_ds_v1.xml"
     --exclude="$APP_NAME/default/data/ui/views/ko_diff_ds_v2.xml"
@@ -151,7 +182,9 @@ EXCLUDE_FLAGS=(
     --exclude="$APP_NAME/default/data/ui/views/wrapper_token_test.xml"
 )
 
-tar "${TAR_FLAGS[@]}" "${EXCLUDE_FLAGS[@]}" \
+# TAR_FLAGS is only populated on Darwin, so it is empty on Linux and needs the
+# same empty-array guard as above. EXCLUDE_FLAGS always has at least one entry.
+tar ${TAR_FLAGS[@]+"${TAR_FLAGS[@]}"} "${EXCLUDE_FLAGS[@]}" \
     -czf "$TARBALL" \
     -C "$SCRIPT_DIR" \
     "$APP_NAME"
