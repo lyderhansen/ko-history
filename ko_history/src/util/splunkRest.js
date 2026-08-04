@@ -10,6 +10,7 @@
  */
 
 import { parseExtractionTitle, tagNames, parseLookupDefinition } from './koRestoreParse';
+import { parseSettings, serializeSettings, effectiveAllowed } from './restoreSettings';
 import { runJob } from './searchJob';
 
 // Slots and searches always target THIS app. Never user-configurable.
@@ -112,6 +113,80 @@ function headers() {
     };
 }
 
+/*
+ * Turn a splunkd error body into a sentence.
+ *
+ * splunkd answers a refused write with
+ *   {"messages":[{"type":"ERROR","text":"User 'x' with roles { a, b } cannot
+ *    write: /nobody/app/views/name { read : [ * ], write : [ admin ] } ..."}]}
+ * and pasting that verbatim into a dialog, which is what used to happen, hands
+ * the user a wall of JSON to decode. Pull the text out, and for the one case
+ * that actually matters (403) replace it with something actionable: the raw
+ * message names an internal ACL path the reader cannot act on anyway.
+ */
+export function splunkErrorText(status, bodyText, whatFailed) {
+    let text = '';
+    try {
+        const body = JSON.parse(bodyText);
+        if (body && body.messages && body.messages.length) {
+            text = String(body.messages[0].text || '');
+        }
+    } catch (e) {
+        text = String(bodyText || '').slice(0, 200);
+    }
+    if (status === 403) {
+        // Recover the app name from ".../nobody/<app>/views/<name>" when present,
+        // so the message can say WHERE the user lacks access.
+        const m = /cannot write:\s*\/[^/]+\/([^/]+)\//.exec(text);
+        const where = m ? ' in the ' + m[1] + ' app' : '';
+        return (whatFailed || 'That write') + ' needs write access' + where +
+               ', which your account does not have. Ask a Splunk admin, or pick an app you can write to.';
+    }
+    return (whatFailed || 'The request') + ' failed (HTTP ' + status + ')' +
+           (text ? ': ' + text.slice(0, 200) : '');
+}
+
+/*
+ * May this user create an object in <app>/<collection>?
+ *
+ * splunkd advertises a `create` link on a collection exactly when the caller may
+ * POST a new entry to it, so one cheap GET answers the question without
+ * attempting a write. Used to disable controls the user could never complete
+ * instead of letting them fill in a form and collect a 403.
+ *
+ * Resolves false on any doubt.
+ */
+export function canCreateIn(appName, collection) {
+    // count=1, NOT count=0. In the Splunk REST API count=0 means "no limit", so
+    // this probe was pulling every entry the app context can see — for
+    // data/ui/views that is every dashboard including globally-shared ones from
+    // other apps, each carrying its complete eai:data. Megabytes through
+    // JSON.parse on the main thread, re-run on every restore target-app change,
+    // to read one boolean. The links.create field is on the collection itself,
+    // so one entry is as good as all of them; f=title keeps that entry small.
+    const url = rawUrl('/servicesNS/nobody/' + encodeURIComponent(appName) + '/' + collection) +
+        '?output_mode=json&count=1&f=title';
+    return fetch(url, { method: 'GET', credentials: 'same-origin', headers: headers() })
+        .then((resp) => {
+            if (!resp.ok) return false;
+            return resp.text().then((t) => {
+                try {
+                    const body = JSON.parse(t);
+                    return !!(body && body.links && body.links.create);
+                } catch (e) {
+                    return false;
+                }
+            });
+        })
+        .catch(() => false);
+}
+
+// Can this user write the preview slot views this app renders comparisons into?
+// Everything in the compare and preview flow depends on it.
+export function canWritePreviewSlots() {
+    return canCreateIn(PREVIEW_APP, 'data/ui/views');
+}
+
 // Quote a literal for safe interpolation into an SPL string match.
 export function splQuote(s) {
     return '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
@@ -175,10 +250,10 @@ export function upsertView(viewName, xmlData) {
                 body: encodeForm({ name: viewName, 'eai:data': xmlData }),
             }).then((r2) => {
                 if (r2.ok) return r2;
-                return r2.text().then((t) => Promise.reject(new Error('create view HTTP ' + r2.status + ' ' + t.slice(0, 200))));
+                return r2.text().then((t) => Promise.reject(Object.assign(new Error(splunkErrorText(r2.status, t, 'Creating the preview view')), { code: r2.status === 403 ? 'FORBIDDEN' : 'HTTP' })));
             });
         }
-        return resp.text().then((t) => Promise.reject(new Error('update view HTTP ' + resp.status + ' ' + t.slice(0, 200))));
+        return resp.text().then((t) => Promise.reject(Object.assign(new Error(splunkErrorText(resp.status, t, 'Updating the preview view')), { code: resp.status === 403 ? 'FORBIDDEN' : 'HTTP' })));
     });
 }
 
@@ -234,7 +309,7 @@ export function restoreView(appName, viewName, xmlData, allowOverwrite) {
                     body: encodeForm({ 'eai:data': xmlData }),
                 }).then((resp) => {
                     if (resp.ok) return { created: false };
-                    return resp.text().then((t) => Promise.reject(new Error('restore HTTP ' + resp.status + ' ' + t.slice(0, 200))));
+                    return resp.text().then((t) => Promise.reject(Object.assign(new Error(splunkErrorText(resp.status, t, 'Restoring')), { code: resp.status === 403 ? 'FORBIDDEN' : 'HTTP' })));
                 });
             }
             // Does not exist — create.
@@ -246,7 +321,7 @@ export function restoreView(appName, viewName, xmlData, allowOverwrite) {
                 body: encodeForm({ name: viewName, 'eai:data': xmlData }),
             }).then((r2) => {
                 if (r2.ok) return { created: true };
-                return r2.text().then((t) => Promise.reject(new Error('create view HTTP ' + r2.status + ' ' + t.slice(0, 200))));
+                return r2.text().then((t) => Promise.reject(Object.assign(new Error(splunkErrorText(r2.status, t, 'Creating the preview view')), { code: r2.status === 403 ? 'FORBIDDEN' : 'HTTP' })));
             });
         });
 }
@@ -341,12 +416,12 @@ function upsertItem(restPath, appName, name, body, allowOverwrite) {
                 }
                 return fetch(itemUrl, { method: 'POST', credentials: 'same-origin', headers: h, body: encodeForm(body) })
                     .then((resp) => resp.ok ? { created: false }
-                        : resp.text().then((t) => Promise.reject(new Error('restore HTTP ' + resp.status + ' ' + t.slice(0, 200)))));
+                        : resp.text().then((t) => Promise.reject(Object.assign(new Error(splunkErrorText(resp.status, t, 'Restoring')), { code: resp.status === 403 ? 'FORBIDDEN' : 'HTTP' }))));
             }
             const createUrl = rawUrl(base) + '?output_mode=json';
             return fetch(createUrl, { method: 'POST', credentials: 'same-origin', headers: h, body: encodeForm(Object.assign({ name: name }, body)) })
                 .then((r2) => r2.ok ? { created: true }
-                    : r2.text().then((t) => Promise.reject(new Error('create HTTP ' + r2.status + ' ' + t.slice(0, 200)))));
+                    : r2.text().then((t) => Promise.reject(Object.assign(new Error(splunkErrorText(r2.status, t, 'Restoring')), { code: r2.status === 403 ? 'FORBIDDEN' : 'HTTP' }))));
         });
 }
 
@@ -457,4 +532,155 @@ export function previewUrl(viewName, cacheBuster) {
         '&_cb=' +
         encodeURIComponent(cacheBuster)
     );
+}
+
+// ── App settings: the [restore] stanza of ko_history.conf ────────────────────
+//
+// Restore is opt-in, so both of these fail closed. A missing stanza, a refused
+// read and an unparseable body all leave `enabled` empty, which the gate in
+// restoreSettings.effectiveAllowed() turns into "nothing is restorable".
+//
+// The stanza is addressed under `nobody` so every user reads the same app-level
+// setting rather than a per-user copy.
+const SETTINGS_COLLECTION =
+    '/servicesNS/nobody/' + encodeURIComponent(PREVIEW_APP) + '/configs/conf-ko_history';
+const SETTINGS_PATH = SETTINGS_COLLECTION + '/restore';
+
+// Every request here is bounded. fetch has no default timeout, and a splunkd
+// that accepts the connection but never answers would otherwise leave the
+// wrapper in 'loading' forever with restore blocked and no way to retry. Same
+// reasoning, and the same 30s, as searchJob.js.
+const SETTINGS_TIMEOUT_MS = 30000;
+
+function fetchSettings(url, init) {
+    // Aborting is safe here in a way it is not for search jobs: these are plain
+    // conf reads and writes with no server-side job to strand.
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const opts = Object.assign({ credentials: 'same-origin', headers: headers() }, init);
+    if (ctl) opts.signal = ctl.signal;
+
+    let timer = null;
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+            if (ctl) { try { ctl.abort(); } catch (e) { /* already gone */ } }
+            const err = new Error('settings request timed out after ' + SETTINGS_TIMEOUT_MS + 'ms');
+            err.code = 'TIMEOUT';
+            reject(err);
+        }, SETTINGS_TIMEOUT_MS);
+    });
+
+    return Promise.race([fetch(url, opts), timeout]).then(
+        (resp) => { clearTimeout(timer); return resp; },
+        (e) => {
+            clearTimeout(timer);
+            if (e && e.code) throw e;
+            // An abort surfaces as an AbortError; anything else is a network
+            // failure. Both are "we could not read it", never "it is off".
+            const err = new Error((e && e.message) || 'settings request failed');
+            err.code = 'READ_FAILED';
+            throw err;
+        }
+    );
+}
+
+// Resolves { found, missing, enabled, canWrite }.
+//
+// `canWrite` comes from the stanza's own ACL, so the settings page decides
+// read-only mode without hardcoding a role name anywhere. `missing` separates
+// "this install has no such stanza" from a transient failure: the first is a
+// quiet, expected state, the second deserves an error message.
+export function readRestoreSettings() {
+    const url = rawUrl(SETTINGS_PATH) + '?output_mode=json';
+    return fetchSettings(url, { method: 'GET' })
+        .then((resp) => {
+            if (resp.status === 404) {
+                // The stanza does not exist, so it has no ACL to ask. Writing a
+                // NEW stanza is governed by the collection, so ask that instead:
+                // hardcoding canWrite false here left an admin reading "saving
+                // will create them" on a page with no Save button.
+                return canWriteSettingsCollection().then((canWrite) => ({
+                    found: false, missing: true, enabled: [], canWrite,
+                }));
+            }
+            if (!resp.ok) {
+                return resp.text().then((t) => {
+                    const err = new Error('settings read HTTP ' + resp.status + ' ' + t.slice(0, 200));
+                    err.code = resp.status === 403 ? 'FORBIDDEN' : 'READ_FAILED';
+                    return Promise.reject(err);
+                });
+            }
+            // Parse the text ourselves: resp.json() throws an opaque error on an
+            // empty or non-JSON body, which is exactly when we want a clear one.
+            return resp.text().then((t) => {
+                let body;
+                try {
+                    body = JSON.parse(t);
+                } catch (e) {
+                    const err = new Error('settings read returned a non-JSON body');
+                    err.code = 'READ_FAILED';
+                    return Promise.reject(err);
+                }
+                return Object.assign({ missing: false }, parseSettings(body));
+            });
+        });
+}
+
+// May this user create the [restore] stanza? Only consulted when the stanza is
+// absent, since a stanza that does not exist has no ACL of its own to ask.
+//
+// Splunk advertises a `create` link on a collection exactly when the caller may
+// POST a new entry to it, which is the permission in question. Resolves false on
+// any doubt: a wrong false costs a read-only page, a wrong true costs a Save
+// button that fails on click.
+function canWriteSettingsCollection() {
+    const url = rawUrl(SETTINGS_COLLECTION) + '?output_mode=json&count=0';
+    return fetchSettings(url, { method: 'GET' })
+        .then((resp) => {
+            if (!resp.ok) return false;
+            return resp.text().then((t) => {
+                try {
+                    const body = JSON.parse(t);
+                    return !!(body && body.links && body.links.create);
+                } catch (e) {
+                    return false;
+                }
+            });
+        })
+        .catch(() => false);
+}
+
+// Write the allow-list, then re-read so the caller renders what actually landed
+// rather than what it hoped for. Every key is written, including the ones being
+// turned off.
+//
+// Resolves the readRestoreSettings() shape plus `confirmed`. The distinction
+// matters: if the POST succeeds and only the confirming re-read fails, the
+// settings ARE on disk and restore may now be live. Reporting that as a failed
+// save tells the admin the opposite of the truth, so the write resolves with
+// confirmed:false and the values that were requested, rather than rejecting.
+export function writeRestoreSettings(enabled) {
+    const url = rawUrl(SETTINGS_PATH) + '?output_mode=json';
+    return fetchSettings(url, { method: 'POST', body: serializeSettings(enabled) })
+        .then((resp) => {
+            if (!resp.ok) {
+                return resp.text().then((t) => {
+                    const err = new Error('settings write HTTP ' + resp.status + ' ' + t.slice(0, 200));
+                    // 403 here means the ACL changed under us, or the page was
+                    // left open by a user who has since lost write access.
+                    err.code = resp.status === 403 ? 'FORBIDDEN' : 'WRITE_FAILED';
+                    return Promise.reject(err);
+                });
+            }
+            return readRestoreSettings()
+                .then((res) => Object.assign({ confirmed: true }, res))
+                .catch(() => ({
+                    // The write landed. Report what we asked for, flagged as
+                    // unconfirmed, so the UI can say "saved, could not re-read".
+                    found: true,
+                    missing: false,
+                    enabled: effectiveAllowed(enabled),
+                    canWrite: true,
+                    confirmed: false,
+                }));
+        });
 }

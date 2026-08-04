@@ -107,6 +107,7 @@ define([
     // Shared engine (prefix/suffix trim, Int32Array, graceful block-replace).
     // See ko_history/src/shared/lineDiff.js for the algorithm.
     var _lineDiffCore = require('../../../../../src/shared/lineDiff.js');
+    var pairDiff = require('../../../../../src/shared/pairDiff.js');
 
     function diffLines(aLines, bLines) {
         // Key by rendered html so identical visual output = identical "line".
@@ -129,26 +130,6 @@ define([
     }
 
     // Pair a del/add run into aligned [left,right] rows for the split diff view.
-    function pairDiff(ops) {
-        var rows = [], i = 0;
-        while (i < ops.length) {
-            if (ops[i].t === 'eq') { rows.push({ l: ops[i].line, r: ops[i].line, lt: 'eq', rt: 'eq' }); i++; continue; }
-            var dels = [], adds = [];
-            while (i < ops.length && ops[i].t === 'del') { dels.push(ops[i].line); i++; }
-            while (i < ops.length && ops[i].t === 'add') { adds.push(ops[i].line); i++; }
-            var nn = Math.max(dels.length, adds.length);
-            for (var k = 0; k < nn; k++) {
-                rows.push({
-                    l: k < dels.length ? dels[k] : null,
-                    r: k < adds.length ? adds[k] : null,
-                    lt: k < dels.length ? 'del' : 'none',
-                    rt: k < adds.length ? 'add' : 'none'
-                });
-            }
-        }
-        return rows;
-    }
-
     return SplunkVisualizationBase.extend({
 
         initialize: function () {
@@ -550,6 +531,9 @@ define([
             var ops = diffLines(mBase.lines, mTarg.lines);
             this._diffOps = ops;
             this._diffView = c.diffView;
+            // _drawDiffBody re-runs on the Split/Unified toggle and has no access
+            // to `c`, so the option is stashed alongside the view mode.
+            this._diffLineNumbers = c.showLineNumbers;
 
             var adds = 0, dels = 0;
             for (var i = 0; i < ops.length; i++) { if (ops[i].t === 'add') adds++; else if (ops[i].t === 'del') dels++; }
@@ -631,6 +615,7 @@ define([
             var ops = this._diffOps, i;
             var cap = renderCap(this._diffOps.length, this._expandAll).limit;
             var self = this;
+            var nums = this._diffLineNumbers !== false;
 
             // shared factory for the click-to-expand truncation control
             function makeTruncRow(total) {
@@ -647,9 +632,21 @@ define([
             }
 
             if (this._diffView === 'unified') {
+                // Two gutters, as unified diffs conventionally have: the line's
+                // number in the older source and in the newer one. A deleted line
+                // exists only in the old, an added line only in the new, so the
+                // other cell stays blank rather than showing a misleading number.
+                var uOld = 0, uNew = 0;
                 for (i = 0; i < ops.length && i < cap; i++) {
                     var op = ops[i];
                     var ln = el('div', 'kojv__line' + (op.t === 'add' ? ' kojv__line--add' : op.t === 'del' ? ' kojv__line--del' : ''));
+                    if (op.t === 'add') { uNew++; } else if (op.t === 'del') { uOld++; } else { uOld++; uNew++; }
+                    if (nums) {
+                        ln.appendChild(el('span', 'kojv__ln kojv__ln--diff',
+                            op.t === 'add' ? '' : String(uOld)));
+                        ln.appendChild(el('span', 'kojv__ln kojv__ln--diff kojv__ln--new',
+                            op.t === 'del' ? '' : String(uNew)));
+                    }
                     ln.appendChild(el('span', 'kojv__dsign', op.t === 'add' ? '+' : op.t === 'del' ? '−' : ''));
                     var code = el('span', 'kojv__code');
                     code.innerHTML = op.line.html;
@@ -660,7 +657,7 @@ define([
                     body.appendChild(makeTruncRow(ops.length));
                 }
             } else {
-                var hdr = el('div', 'kojv__diffhdr');
+                var hdr = el('div', 'kojv__diffhdr' + (nums ? ' kojv__diffhdr--nums' : ''));
                 hdr.appendChild(el('div', 'kojv__diffhdr-l', 'OLDER'));
                 hdr.appendChild(el('div', 'kojv__diffhdr-r', 'NEWER'));
                 body.appendChild(hdr);
@@ -672,7 +669,13 @@ define([
                     left.innerHTML = r.l ? r.l.html : '';
                     var right = el('span', 'kojv__half kojv__half--' + r.rt);
                     right.innerHTML = r.r ? r.r.html : '';
+                    // Each side is numbered against its own source, so the two
+                    // columns drift apart wherever one side gained or lost lines.
+                    // That drift is the point: it is what tells you where you are
+                    // in each file.
+                    if (nums) row.appendChild(el('span', 'kojv__ln kojv__ln--diff', r.ln === null ? '' : String(r.ln)));
                     row.appendChild(left);
+                    if (nums) row.appendChild(el('span', 'kojv__ln kojv__ln--diff kojv__ln--new', r.rn === null ? '' : String(r.rn)));
                     row.appendChild(right);
                     body.appendChild(row);
                 }

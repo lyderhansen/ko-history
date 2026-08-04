@@ -142,6 +142,7 @@ define([
     // Must live ABOVE the return: everything after it is unreachable.
     // A `var` down there hoists as undefined and never assigns.
     var _spl = require('../../../../../src/shared/splHighlight.js');
+    var _dashMeta = require('../../../../../src/shared/dashboardMeta.js');
     var _lineDiffCore = require('../../../../../src/shared/lineDiff.js');
 
     return SplunkVisualizationBase.extend({
@@ -264,12 +265,27 @@ define([
 
             var koType = (fL(c.typeField) || '').toLowerCase();
             var isSavedSearch = koType === 'savedsearch' || (fL('search') !== '' && fL('alert_type') !== '');
+            // A dashboard's "definition" is a whole document, not a one-line
+            // expression, so the generic card's code-field treatment reads badly
+            // for it. Detected by the captured source rather than by ko_type
+            // alone, so this still works when the type column is absent.
+            var dashSrc = fL('data') || fL('eai:data') || '';
+            // 'views' is the value this app actually stores: the capture searches
+            // do `| rename eai:* as *`, so `type` carries eai:type verbatim, and
+            // for dashboards that is the plural 'views'. Without it in this list
+            // the card never fired on the app's own data and every dashboard fell
+            // through to the generic code-field card. 'dashboard'/'view' stay for
+            // hand-written searches that label the column themselves.
+            var isDashboard = !isSavedSearch &&
+                (koType === 'views' || koType === 'dashboard' || koType === 'view' ||
+                 (koType === '' && /^[\s\uFEFF]*[<{]/.test(dashSrc)));
             var diffActive = !!prevRow && c.mode !== 'single';
 
             // Diff panel first (what changed previous → latest), then the full
             // LATEST card for context.
             if (diffActive) this.root.appendChild(this._diffPanel(fL, fP, cols, c));
             if (isSavedSearch) this.root.appendChild(this._savedSearchCard(fL, cols, c));
+            else if (isDashboard) this.root.appendChild(this._dashboardCard(fL, cols, c, dashSrc));
             else this.root.appendChild(this._genericCard(fL, cols, c, koType));
         },
 
@@ -487,6 +503,100 @@ define([
                 card.appendChild(al);
             }
 
+            return card;
+        },
+
+        // ── dashboard profile ─────────────────────────────────
+        // What the source cannot tell you at a glance: which flavour of
+        // dashboard this is, what it is called, and how much is in it. The
+        // source itself follows, because standalone (outside ko_version_ds,
+        // where source_viewer sits alongside) this card is the only thing
+        // rendering it.
+        _dashboardCard: function (f, cols, c, src) {
+            var card = el('div', 'korc__card');
+            var m = _dashMeta(src);
+            // The captured title column wins over the one inside the source:
+            // the source's own label can lag a rename.
+            var title = f(c.titleField) || m.label || '(untitled)';
+            var app = f(c.appField) || f('app');
+            var disabled = f('disabled');
+
+            var head = el('div', 'korc__head');
+            var hid = el('div', 'korc__hid');
+            hid.appendChild(el('div', 'korc__title', title));
+            var sub = el('div', 'korc__sub'), first = true;
+            var subFields = [['app', app], ['owner', f('owner')], ['sharing', f('sharing')], ['updated', f('updated')]];
+            for (var i = 0; i < subFields.length; i++) {
+                if (!subFields[i][1]) continue;
+                if (!first) sub.appendChild(this._sep());
+                sub.appendChild(this._kv(subFields[i][0], subFields[i][1]));
+                first = false;
+            }
+            hid.appendChild(sub);
+            head.appendChild(hid);
+
+            var seals = el('div', 'korc__seals');
+            if (disabled !== '') {
+                var off = truthy(disabled);
+                var st = el('span', 'korc__seal ' + (off ? 'off' : 'on'));
+                st.textContent = off ? 'disabled' : 'enabled';
+                seals.appendChild(st);
+            }
+            if (m.panels !== null) {
+                seals.appendChild(el('span', 'korc__seal',
+                    m.panels + (m.panels === 1 ? ' panel' : ' panels')));
+            }
+            seals.appendChild(el('span', 'korc__seal kind', m.format));
+            head.appendChild(seals);
+            card.appendChild(head);
+
+            var shown = {};
+            shown[c.titleField] = 1; shown[c.appField] = 1; shown.app = 1; shown.owner = 1;
+            shown.sharing = 1; shown.updated = 1; shown[c.typeField] = 1; shown.disabled = 1;
+            var nextIdx = 1, pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+
+            var desc = f('description') || m.description;
+            if (desc) {
+                var d0 = this._section(pad(nextIdx++), 'Description');
+                d0.appendChild(el('p', 'korc__desc', desc));
+                card.appendChild(d0);
+                shown.description = 1;
+            }
+
+            // Counts are null when the source could not be read. Printing 0
+            // there would state something false, so the row is omitted and the
+            // reason is shown instead.
+            var st2 = [['format', m.format]];
+            if (m.version) st2.push(['version', m.version]);
+            if (m.theme) st2.push(['theme', m.theme]);
+            if (m.panels !== null) st2.push(['panels', String(m.panels)]);
+            if (m.searches !== null) st2.push([m.isStudio ? 'data sources' : 'searches', String(m.searches)]);
+            if (m.inputs !== null) st2.push(['inputs', String(m.inputs)]);
+            if (m.parseError) st2.push(['note', 'the definition could not be parsed, so panel counts are unavailable']);
+            var stSec = this._section(pad(nextIdx++), 'Structure');
+            stSec.appendChild(this._rows(st2));
+            card.appendChild(stSec);
+
+            if (src) {
+                var sec = this._section(pad(nextIdx++), m.isStudio ? 'Definition · JSON' : 'Definition · Simple XML');
+                sec.appendChild(this._spl(src, c.showCopy, m.isStudio ? 'Studio JSON' : 'Simple XML'));
+                card.appendChild(sec);
+                shown.data = 1; shown['eai:data'] = 1;
+            }
+
+            var rows = [];
+            for (var k = 0; k < cols.length; k++) {
+                var name = cols[k];
+                if (shown[name] || name.charAt(0) === '_') continue;
+                var val = f(name);
+                if (!val) continue;
+                rows.push([name, val]);
+            }
+            if (rows.length) {
+                var det = this._section(pad(nextIdx++), 'Details');
+                det.appendChild(this._rows(rows));
+                card.appendChild(det);
+            }
             return card;
         },
 

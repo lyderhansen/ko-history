@@ -8,7 +8,8 @@ A dashboard disappears, a critical alert gets overwritten, a report is lost, and
 
 - **A version log per KO**: every change captured with timestamp, author, and full source.
 - **An audit trail**: DELETE and MOVE actions linked to the user who performed them.
-- **Restore scope**: all seven object types are captured, previewed and compared. **One-click restore currently covers dashboards and saved searches**; restore for macros, event types, field extractions, lookups and tags is implemented but disabled pending further testing.
+- **Restore scope**: all seven object types are captured, previewed and compared. **One-click restore covers dashboards and saved searches**; restore for macros, event types, field extractions, lookups and tags is implemented but disabled pending further testing.
+- **Restore is opt-in**: it ships off for every object type and an admin enables it per type on the app's **Settings** page. It is the only operation that writes back into your environment; everything else works with it disabled.
 - **Visual recovery**: preview *any* past version inline, diff two versions (boxes drawn over changed panels on the live render), then restore the source into any app in one click.
 - **Survives deletion**: history lives in a separate summary index, so it outlives the object.
 
@@ -16,7 +17,7 @@ A dashboard disappears, a critical alert gets overwritten, a report is lost, and
 
 | Path | Purpose |
 |------|---------|
-| `default/savedsearches.conf` | 17 stanzas: 7 type backups, 1 combined delete-audit, 1 lookup builder, 1 usage collector, 7 one-time backfills, all feeding `index=ko_history`. All ship disabled. |
+| `default/savedsearches.conf` | 25 stanzas: 7 type backups, 7 daily catch-ups, 1 combined delete-audit, 2 lookup builders, 1 usage collector, 7 one-time backfills, all feeding `index=ko_history`. All ship disabled. |
 | `default/data/ui/views/` | The dashboards: `wrapper.xml` (React page host), `ko_version.xml`, `ko_version_ds.xml`, `ko_help.xml`. |
 | `appserver/static/visualizations/` | Three bundled custom vizs (see below). |
 | `appserver/static/pages/wrapper.js` + `appserver/templates/wrapper.html` | The React app page (`@splunk/react-page`). |
@@ -24,7 +25,7 @@ A dashboard disappears, a critical alert gets overwritten, a report is lost, and
 | `default/visualizations.conf` | Registers the three custom vizs. |
 | `metadata/default.meta` | ACL (read: \*, write: admin/sc\_admin; vizs exported system-wide). |
 
-### The scheduled searches (17 stanzas)
+### The scheduled searches (25 stanzas)
 
 **ALL capture searches ship `disabled = 1`. Enable them after creating the index.**
 
@@ -83,7 +84,7 @@ The **`ko_history` index** must exist before the capture searches start writing.
 
 1. Install the tarball (Manage Apps → Install app from file) or drop `ko_history/` into `$SPLUNK_HOME/etc/apps/`.
 2. **`splunk restart`**: a full restart is required (the React page is served from a Mako template + static bundle that a reload won't refresh).
-3. Enable the capture searches under **Settings → Searches, reports, and alerts** (app: KO History). All ship disabled. Enable `ko_views_xml_backup` through `ko_tags_backup` and `ko_all_delete_audit` after the `ko_history` index exists. See *Scheduled searches* above for the full list.
+3. Enable the capture searches. The **Reports** entry in the app nav lists them already scoped to KO History; **Settings → Searches, reports, and alerts** works too. All ship disabled. Enable `ko_views_xml_backup` through `ko_tags_backup` and `ko_all_delete_audit` after the `ko_history` index exists. See *Scheduled searches* above for the full list.
 4. Wait one cron cycle (~15 min), then open **Apps → KO History**.
 
 ## Configuration
@@ -128,6 +129,7 @@ Apache License 2.0. The full text ships with the app as `LICENSE`.
 
 | Version | Notes |
 |---------|-------|
+| 1.2.0   | **Restore is now opt-in and ships disabled.** A new admin **Settings** page in the app nav enables it per object type and writes `ko_history.conf`; the five untested types appear as greyed-out placeholders that conf cannot switch on. **Action required after upgrading: restore stays off until an admin enables it.** Also: Dashboards and Reports entries in the app nav, the Simple XML dashboard is labelled `KO Version (SXML)` so it is distinguishable from the Studio one, and the help page Overview tab is more compact. |
 | 1.1.2   | Dashboard Studio schema fixes: every help panel carried a `name` property, which is a dataSource field and not a visualization one, so Studio rejected all of them. Both dashboards moved to the `tabs` + `layoutDefinitions` layout form, the only one the current schema accepts. The help page is now four tabs (Overview, Operating, Troubleshooting, Architecture) instead of one very long scroll. Adds `app.manifest`. |
 | 1.1.1   | Source viewer: copy either side of a diff, not just the newer one, and long lines now wrap instead of being clipped (the wrapper's inline source view had no wrap mode at all). Restore scope stated explicitly: all seven object types are captured, previewed and compared, while one-click restore covers dashboards and saved searches. |
 | 1.1.0   | Polish and packaging release. Searches now run as async jobs instead of a blocking oneshot, fixing a preview panel that could hang indefinitely on a slow instance; a progress bar and a 30-second timeout replace the silent spinner. Restore, compare, and approval dialogs share one visual language. View mode writes a single preview slot. Every shipped search carries inline SPL comments. Apache-2.0 `LICENSE` now ships with the app. **Removed:** the REST Explorer and KO Statistics dashboards, which were development tools rather than product surfaces. |

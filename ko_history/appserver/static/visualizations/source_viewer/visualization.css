@@ -124,6 +124,18 @@
     border-right: 1px solid var(--gutter-rule);
     user-select: none; font-size: 11.5px;
 }
+/* Diff gutters. Narrower than the single-source one (56px) because a diff
+   carries two of them, and they must not shrink when a row's code is long. */
+.kojv__ln--diff { flex: 0 0 44px; padding: 0 8px 0 0; }
+/* The newer side's gutter opens a column rather than closing one, so its rule
+   goes on the left. Without this the split view reads as three columns with the
+   divider in the wrong place. */
+.kojv__ln--new { border-right: none; border-left: 1px solid var(--gutter-rule); }
+/* An added line has no number in the old source, and vice versa. The cell stays
+   for alignment but must not pick up the row's add/del tint, or a blank cell
+   reads as a changed line. */
+.kojv__line--add .kojv__ln--diff,
+.kojv__line--del .kojv__ln--diff { background: var(--gutter-bg); }
 .kojv__code {
     flex: 1 1 auto; padding: 0 16px 0 14px;
     white-space: pre; overflow: visible; color: var(--text); position: relative;
@@ -179,6 +191,11 @@
 .kojv__diffhdr > div { flex: 1 1 0; min-width: 0; padding: 3px 12px; }
 .kojv__diffhdr-l { color: var(--t-punct); border-right: 1px solid var(--edge); }
 .kojv__diffhdr-r { color: var(--t-num); }
+/* With gutters on, the OLDER/NEWER captions have to clear a number column each
+   or they sit over the wrong side of the split. Padding matches .kojv__ln--diff
+   (44px) plus the caption's own 12px. */
+.kojv__diffhdr--nums .kojv__diffhdr-l,
+.kojv__diffhdr--nums .kojv__diffhdr-r { padding-left: 56px; }
 .kojv__half {
     flex: 1 1 0; min-width: 0; padding: 0 12px;
     white-space: pre; overflow: hidden; color: var(--text);

@@ -106,12 +106,25 @@ export function Flag({ color, bg, dot, open, onClick, children }) {
  * hover is suppressed while disabled so a disabled button never looks live. */
 export function HoverBtn({ base, hover, disabled, children, ...rest }) {
     const [h, setH] = React.useState(false);
-    return (
+    const btn = (
         <button type="button" disabled={disabled} {...rest}
             onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
             style={h && !disabled ? { ...base, ...hover } : base}>
             {children}
         </button>
+    );
+    /* A `title` on a natively disabled <button> never appears: browsers do not
+     * dispatch pointer events to disabled form controls, so the tooltip that is
+     * supposed to explain WHY a control is dead is exactly the one that cannot
+     * render. Wrapping in a span, which does receive those events, is the only
+     * way to keep the explanation. The wrapper inherits the button's width so a
+     * full-width button (btnBase defaults to width:100%) still fills its row. */
+    if (!disabled || !rest.title) return btn;
+    return (
+        <span title={rest.title}
+            style={{ display: 'inline-flex', width: (base && base.width) || '100%' }}>
+            {btn}
+        </span>
     );
 }
 

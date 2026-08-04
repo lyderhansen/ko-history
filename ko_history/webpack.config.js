@@ -1,12 +1,19 @@
 const path = require('path');
 const webpack = require('webpack');
 
+// One bundle per app page. Each entry name becomes <name>.js, which the
+// matching appserver/templates/<name>.html loads by that path.
+const entry = {
+    wrapper: path.resolve(__dirname, 'src/pages/wrapper/index.jsx'),
+    settings: path.resolve(__dirname, 'src/pages/settings/index.jsx'),
+};
+
 module.exports = {
     mode: 'production',
     target: 'web',
-    entry: path.resolve(__dirname, 'src/pages/wrapper/index.jsx'),
+    entry,
     output: {
-        filename: 'wrapper.js',
+        filename: '[name].js',
         path: path.resolve(__dirname, 'appserver/static/pages'),
         // Normal IIFE bundle loaded via <script>; NOT an AMD module.
     },
@@ -29,9 +36,11 @@ module.exports = {
     },
     optimization: { minimize: true, splitChunks: false, runtimeChunk: false },
     plugins: [
-        // Collapse dynamic-import chunks into the single page bundle so there
-        // are no extra files to serve from Splunk static.
-        new webpack.optimize.LimitChunkCountPlugin({ maxChunks: 1 }),
+        // Collapse dynamic-import chunks back into their page bundle so there are
+        // no extra files to serve from Splunk static. The budget is one chunk per
+        // entry, not one overall: with a lower limit this plugin will merge the
+        // entry chunks themselves and each page ends up running both pages' code.
+        new webpack.optimize.LimitChunkCountPlugin({ maxChunks: Object.keys(entry).length }),
     ],
     performance: { hints: false },
 };

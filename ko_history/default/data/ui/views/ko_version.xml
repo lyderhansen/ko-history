@@ -1,5 +1,5 @@
 <form theme="dark" version="1.1">
-  <label>KO Version</label>
+  <label>KO Version (SXML)</label>
   <description>Audit and recover dashboards, reports, and alerts by browsing the version history captured in index=ko_history.</description>
   <fieldset submitButton="false">
     <input type="time" token="timePicker">
@@ -277,7 +277,7 @@
       <table>
         <search id="baseSearchPreview">
           <query>index="ko_history" source IN ($koType$) NOT source="ko_usage" title="$drilldownTitle$"
-| eval data=replace(data,"\\\\(.)","\1")
+```NO SECOND UNESCAPE: `data` here is the field Splunk EXTRACTED from the summary event, and extraction already resolved the \" escaping that summary indexing added. Unescaping it again strips backslashes the source itself owns. Simple XML barely uses backslashes so the second pass looked harmless for years, but a Dashboard Studio definition is JSON: \" \\ \n \f inside its query strings are content, and removing those backslashes produces invalid JSON that the views handler rejects with a parse error (Unexpected character). The consumers that DO unescape (baseSearchDataView, ko_version_ds ds_dataview, the wrapper) all work from _raw, where the escaping is still present. This one works from the extracted field, so it must not.```
 | table _time data appName
 | sort - _time</query>
           <earliest>$timePicker.earliest$</earliest>

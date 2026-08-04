@@ -10,7 +10,7 @@
     "viz_md_overview": {
       "type": "splunk.markdown",
       "options": {
-        "markdown": "# KO History: how the pieces fit together\n\n**KO History** captures and versions Splunk knowledge objects into a summary\nindex so you can audit changes and recover content after accidental deletes,\noverwrites, or moves. Seven types are covered: dashboards, reports and alerts,\nsearch macros, event types, field extractions, lookup definitions, and tags.\n\nThis page is a map of the app's moving parts and, importantly, **what depends on\nwhat**. Read it before renaming a view, moving the index, or changing the\ndashboard's selection markers.\n\n| Piece | Type | Role |\n|---|---|---|\n| `wrapper` | React app page (Mako) | The home page. Embeds `ko_version_ds`, drives preview / compare / **restore**. |\n| `ko_version_ds` | Dashboard Studio | The actual data UI: filters, KPIs, KO table, version list, textual diff, **source viewer**. |\n| `ko_version` | Simple XML | Legacy/alternate dashboard; SXML live-render preview via `dashboard_preview`. |\n| `index=ko_history` | summary index | Append-only version log. Everything reads from here. |\n| saved searches | 17 stanzas | Populate the index (7 type backups + combined delete-audit + lookup builder + usage collector + 7 one-time backfills). |\n| custom viz `source_viewer` | bundled viz | Foldable, syntax-highlighted KO source. Used in `ko_version_ds` **and** (its logic) in the wrapper. |\n| custom viz `dashboard_preview` | bundled viz | Live dashboard render for Simple XML host (write-then-iframe). |\n| custom viz `ko_viewer` | bundled viz | Splunk-native record card for one KO version (reports/alerts get a bespoke profile). |\n| `ko_help` | Dashboard Studio | This page. |\n"
+        "markdown": "# KO History: how the pieces fit together\n\n**KO History** captures and versions Splunk knowledge objects into a summary\nindex so you can audit changes and recover content after accidental deletes,\noverwrites, or moves. Seven types are covered: dashboards, reports and alerts,\nsearch macros, event types, field extractions, lookup definitions, and tags.\n\nThis page is a map of the app's moving parts and, importantly, **what depends on\nwhat**. Read it before renaming a view, moving the index, or changing the\ndashboard's selection markers.\n\n| Piece | Type | Role |\n|---|---|---|\n| `ko_home` | Dashboard Studio | The landing page and app default. Pure Studio on purpose: it resolves without a restart, unlike the Mako-templated React pages. |\n| `wrapper` | React app page (Mako) | The main page. Embeds `ko_version_ds`, drives preview / compare / **restore**. |\n| `ko_version_ds` | Dashboard Studio | The actual data UI: filters, KPIs, KO table, version list, textual diff, **source viewer**. |\n| `ko_version` | Simple XML | Legacy/alternate dashboard, labelled **KO Version (SXML)** in the nav to tell it apart from the Studio one; SXML live-render preview via `dashboard_preview`. |\n| `ko_settings` | React app page | Admin settings. Enables restore per object type. |\n| `index=ko_history` | summary index | Append-only version log. Everything reads from here. |\n| saved searches | 25 stanzas | Populate the index (7 type backups + 7 daily catch-ups + combined delete-audit + 2 lookup builders + usage collector + 7 one-time backfills). |\n| custom viz `source_viewer` | bundled viz | Foldable, syntax-highlighted KO source. Used in `ko_version_ds` **and** (its logic) in the wrapper. |\n| custom viz `dashboard_preview` | bundled viz | Live dashboard render for Simple XML host (write-then-iframe). |\n| custom viz `ko_viewer` | bundled viz | Splunk-native record card for one KO version (reports/alerts get a bespoke profile). |\n| `ko_help` | Dashboard Studio | This page. |\n"
       }
     },
     "viz_md_capture": {
@@ -24,55 +24,6 @@
       "options": {
         "src": "/static/app/ko_history/images/capture-flow.svg",
         "preserveAspectRatio": true
-      }
-    },
-    "viz_md_operating": {
-      "type": "splunk.markdown",
-      "options": {
-        "markdown": "## Operating it\n\n### 1. The index must exist first\n\nNothing works until `ko_history` exists. `default/indexes.conf` ships with the\napp and sets a 20-year frozen period, which is the setting that stops old-dated\nsnapshots being aged out. That file applies **only on a search head**:\n\n- **Splunk Enterprise, single search head:** a full restart picks it up. Nothing\n  to do.\n- **Splunk Enterprise, indexer cluster:** create `ko_history` through your\n  cluster manager before enabling anything.\n- **Splunk Cloud:** create an Events index named `ko_history` via the Admin\n  Console. The bundled `indexes.conf` is inert there.\n\n### 2. Enable the capture searches\n\n**Every search ships `disabled = 1`.** This is deliberate: an app that starts\nwriting to a non-existent index on install is worse than one that waits. Enable\nthe seven `ko_*_backup` searches and `ko_all_delete_audit` under Settings,\nSearches, reports and alerts. Wait one cron cycle, roughly 15 minutes.\n\n### 3. Seed history for objects nobody has touched (optional)\n\nThe incremental backups only capture a KO once it is *edited*. An object that is\nnever touched after install and then deleted would have no snapshot to restore\nfrom. The seven `ko_*_backfill` searches close that gap: they snapshot every\ncurrent object of their type, writing to the same summary source as the matching\nbackup so the dashboards see them transparently.\n\nRun each **once, manually**, then leave it disabled. There is no dedup, so\nre-running duplicates snapshots. Each backfill also ships a commented-out\n`| collect` line for the case where you paste the SPL into a search bar, where\nthe saved search's summary-index action does not apply.\n\n### 4. Usage statistics (optional)\n\n`ko_tracked_kos_lookup_builder` and `ko_usage_collector` run daily and populate\nthe access and run counts shown in the KO tables. Enable both together or\nneither: the collector reads the lookup the builder writes.\n"
-      }
-    },
-    "viz_md_restore": {
-      "type": "splunk.markdown",
-      "options": {
-        "markdown": "## Restore: what it does, and what it does not\n\nRestore writes a **real knowledge object** into whichever app you pick, from the\nsnapshot you selected. It is the reason the app exists, so it is worth being\nprecise about its edges.\n\n**What you get back:** the object's source or configuration exactly as captured.\nFor a dashboard that is the full XML or Studio JSON. For a saved search it is\nthe search string, schedule, alert condition and trigger actions.\n\n**Which types can be restored.** All seven types are captured, previewed and\ncompared. One-click restore currently covers **dashboards and saved searches**.\nRestore for macros, event types, field extractions, lookups and tags is\nimplemented but disabled pending further testing, so the Restore button stays\ninactive for those. Their history is still captured, so nothing is lost while\nit is switched off.\n\n**What you do not get back:**\n\n- **Sharing and ownership.** Restored objects are written as owner `nobody`\n  (app-shared). The original ACLs are not replayed. Re-apply permissions\n  yourself if they mattered.\n- **Lookup file contents.** A lookup's *definition* is versioned; the underlying\n  `.csv` or KV-store collection is not, and is not restored.\n- **Tag removals.** Restoring tags re-enables the captured assignments on a\n  `field=value` pair. Tags added since the snapshot are not removed.\n\n**Restoring over an existing object is irreversible** and requires a separate,\nexplicit confirmation in the UI. If KO History also has a snapshot of what you\noverwrote, that snapshot is your way back. If it does not, there is none.\n\n**You need write access** to `data/ui/views` (or the relevant endpoint) in the\ntarget app. Restore is an admin capability by design; see Permissions below.\n"
-      }
-    },
-    "viz_md_history": {
-      "type": "splunk.markdown",
-      "options": {
-        "markdown": "## Reading the version list\n\nA few behaviours surprise people the first time.\n\n- **The oldest snapshot is labelled \"created\".** It is the earliest record the\n  app holds, which is not necessarily when the object was created: anything\n  before the capture searches were enabled is simply not there. Backfill events\n  are stamped at the time you ran the backfill.\n- **Delete and move rows have no source.** They come from the audit stream, so\n  they cannot be previewed, diffed or restored. They tell you *what happened*\n  and *who did it*, not *what it looked like*.\n- **The version list is capped at the 200 most recent** entries per object. A KO\n  edited hundreds of times will not show its whole history in the picker.\n- **Preview runs the dashboard's real searches.** A snapshot preview is a live\n  render, so a heavy dashboard costs what it normally costs. The cost flag on\n  the panel warns before you commit, and calls out unbounded time ranges, which\n  are usually the expensive part.\n- **Comparing writes two scratch views**, `kohist_cmp_baseline_<user>` and\n  `kohist_cmp_target_<user>`, inside this app. Your real objects are never\n  touched, and the slots are per-user so two admins do not collide.\n"
-      }
-    },
-    "viz_img_pairing": {
-      "type": "splunk.image",
-      "options": {
-        "src": "/static/app/ko_history/images/version-pairing.svg",
-        "preserveAspectRatio": true
-      }
-    },
-    "viz_md_permissions": {
-      "type": "splunk.markdown",
-      "options": {
-        "markdown": "## Permissions (read before granting anything)\n\n`metadata/default.meta` grants read to all roles and write to `admin` and\n`sc_admin`. **Do not broaden the `[views]` write stanza.**\n\nThe reason is specific, not cautious boilerplate. All bundled visualizations\nexport as `system`, so they are usable from dashboards in any app. Any role\ngranted `[views]` write **in this app** therefore gains a view create-and-\noverwrite primitive that is reachable from any dashboard, fleet-wide. The\nbrowser approval prompt in the wrapper is a convenience, not a security control:\nit runs client-side and cannot be relied on as a gate.\n\nIf non-admin roles genuinely need preview or restore, the supported path is a\nconstrained server-side endpoint (a custom REST handler enforcing per-user and\nper-slot limits), not a wider write grant.\n"
-      }
-    },
-    "viz_md_troubleshooting": {
-      "type": "splunk.markdown",
-      "options": {
-        "markdown": "## Troubleshooting\n\n**The KO table is empty.** The index exists but nothing has been captured yet.\nConfirm the searches are enabled and that at least one cron cycle has passed.\n`index=ko_history | stats count by source` tells you immediately whether events\nare arriving and from which search.\n\n**A dashboard I know exists has no versions.** The backups only capture objects\nthat change. Until someone edits it, or you run the matching backfill, there is\nnothing to show.\n\n**Versions load slowly, or time out.** The wrapper bounds a version search at 30\nseconds and then offers Retry. A consistently slow search usually means a very\nlarge index with a wide time range; the searches deliberately run over all time\nbecause backfilled events can carry old timestamps.\n\n**The wrapper page looks stale after an upgrade.** The React page is served from\na Mako template plus a static bundle. Copying files or reloading the app is not\nenough: a **full `splunk restart`** is required.\n\n**Preview boxes do not appear.** The in-iframe highlighter tries a ladder of\nselectors and may need tuning on an unusual Splunk build. The structural change\nlist and the source diff never depend on the iframe DOM, so they still work.\n"
-      }
-    },
-    "viz_md_install": {
-      "type": "splunk.markdown",
-      "options": {
-        "markdown": "## Install & rebuild notes\n\n- **Deploy = tarball only.** `./build.sh` at the repo root builds the custom-viz\n  bundles + the React page and packages `dist/ko_history-<version>.tar.gz`.\n  Install that tarball; do **not** hand-edit files inside a running Splunk.\n- **Full restart for the React bundle.** Changes to the wrapper's static bundle\n  need a full `splunk restart` (a reload is not enough) plus a hard browser\n  refresh.\n- **Regenerate dashboards** after editing their generators:\n  `python3 tools/gen_ko_version_ds.py` and `python3 tools/gen_ko_help.py`.\n- **This page** is generated by `tools/gen_ko_help.py`: edit the markdown there,\n  not the committed XML.\n"
-      }
-    },
-    "viz_md_changes": {
-      "type": "splunk.markdown",
-      "options": {
-        "markdown": "## Notable changes\n\n**1.1.0**\n\n- The REST API Explorer and KO Statistics dashboards were removed. They were\n  development tools rather than product surfaces.\n- Searches now run as asynchronous jobs and are polled, replacing a blocking\n  call that could leave the preview panel loading indefinitely on a slow\n  instance.\n- Every shipped search carries inline SPL comments.\n- Apache-2.0 `LICENSE` ships with the app.\n\n**1.0.3**\n\n- `json_viewer` was renamed to `source_viewer`, and `dashboard_preview_ds` was\n  removed. If you reference `ko_history.json_viewer` or\n  `ko_history.dashboard_preview_ds` from your own dashboards, update them.\n"
       }
     },
     "viz_img_dependency": {
@@ -125,6 +76,55 @@
       "options": {
         "markdown": "## Custom visualizations & the DS sandbox\n\nDashboard Studio runs every custom visualization in a **sandboxed iframe**, so no\ncookies, no authenticated fetch, no child iframes. That single fact shapes the\nwhole design:\n\n- **`source_viewer`**: pure client-side formatting of a source string. Sandbox-safe,\n  so it runs natively inside `ko_version_ds` (the *Source of selected version*\n  panel) and its logic is reused client-side in the wrapper's **Source** compare\n  tab. Reads columns `data` / `title` / `app`.\n- **`dashboard_preview`** (SXML): live render via write-then-iframe; only works\n  in Simple XML, where same-origin iframes are allowed.\n- **`ko_viewer`**: record-card viz for saved searches and generic KOs (macros,\n  event types, field extractions, lookups, tags) with field-level diff; DOM-based,\n  sandbox-safe.\n- **The wrapper exists** precisely because it is *not* sandboxed: as a real app\n  page it has the user's session, so it can do authenticated REST and same-origin\n  iframes (live preview, restore) that a DS custom viz never could.\n\nAll three vizs are `export = system` in `metadata/default.meta` so they appear in\nthe viz picker. The viz type is `<app>.<viz>` \u2192 e.g. `ko_history.source_viewer`.\n"
       }
+    },
+    "viz_md_operating": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "## Operating it\n\n### 1. The index must exist first\n\nNothing works until `ko_history` exists. `default/indexes.conf` ships with the\napp and sets a 20-year frozen period, which is the setting that stops old-dated\nsnapshots being aged out. That file applies **only on a search head**:\n\n- **Splunk Enterprise, single search head:** a full restart picks it up. Nothing\n  to do.\n- **Splunk Enterprise, indexer cluster:** create `ko_history` through your\n  cluster manager before enabling anything.\n- **Splunk Cloud:** create an Events index named `ko_history` via the Admin\n  Console. The bundled `indexes.conf` is inert there.\n\n### 2. Enable the capture searches\n\n**Every search ships `disabled = 1`.** This is deliberate: an app that starts\nwriting to a non-existent index on install is worse than one that waits. Enable\nthe seven `ko_*_backup` searches and `ko_all_delete_audit`. The quickest route\nis the **Reports** entry in this app's nav, which lists them already scoped to\nKO History; Settings, then Searches, reports and alerts works too. Wait one cron cycle, roughly 15 minutes.\n\n### 3. Seed history for objects nobody has touched (optional)\n\nThe incremental backups only capture a KO once it is *edited*. An object that is\nnever touched after install and then deleted would have no snapshot to restore\nfrom. The seven `ko_*_backfill` searches close that gap: they snapshot every\ncurrent object of their type, writing to the same summary source as the matching\nbackup so the dashboards see them transparently.\n\nRun each **once, manually**, then leave it disabled. There is no dedup, so\nre-running duplicates snapshots. Each backfill also ships a commented-out\n`| collect` line for the case where you paste the SPL into a search bar, where\nthe saved search's summary-index action does not apply.\n\n### 4. Usage statistics (optional)\n\n`ko_tracked_kos_lookup_builder` and `ko_usage_collector` run daily and populate\nthe access and run counts shown in the KO tables. Enable both together or\nneither: the collector reads the lookup the builder writes.\n"
+      }
+    },
+    "viz_md_restore": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "## Restore: what it does, and what it does not\n\nRestore writes a **real knowledge object** into whichever app you pick, from the\nsnapshot you selected. It is the reason the app exists, so it is worth being\nprecise about its edges.\n\n**What you get back:** the object's source or configuration exactly as captured.\nFor a dashboard that is the full XML or Studio JSON. For a saved search it is\nthe search string, schedule, alert condition and trigger actions.\n\n**Restore ships switched off.** It is the only thing this app does that writes\nback into your environment, so nothing is restorable until an admin turns it on,\nper object type, on the **Settings** page in the app nav. Enabling it writes\n`local/ko_history.conf`, which is also the only route on Splunk Cloud, where the\nfilesystem is not reachable. Capture, version history, preview and compare are\nunaffected and work with everything switched off.\n\nIf you upgraded from 1.1.x, this is a change: restore used to be on for\ndashboards and saved searches. Turn it back on from the Settings page.\n\n**Which types can be restored.** All seven types are captured, previewed and\ncompared. One-click restore covers **dashboards and saved searches**. Restore\nfor macros, event types, field extractions, lookups and tags is implemented but\nhas not finished testing, so the settings page lists them as greyed-out\nplaceholders. Setting those keys to `1` by hand does nothing: the app intersects\nwhat you enabled with what has actually shipped. Their history is still\ncaptured, so nothing is lost while it is switched off.\n\n**A greyed-out Restore button always says why.** Hover it. There are three\ndifferent reasons, and they are not interchangeable: the type is disabled in\nsettings, the type has not shipped yet, or the settings could not be read at\nall. The last one fails closed on purpose.\n\n**What you do not get back:**\n\n- **Sharing and ownership.** Restored objects are written as owner `nobody`\n  (app-shared). The original ACLs are not replayed. Re-apply permissions\n  yourself if they mattered.\n- **Lookup file contents.** A lookup's *definition* is versioned; the underlying\n  `.csv` or KV-store collection is not, and is not restored.\n- **Tag removals.** Restoring tags re-enables the captured assignments on a\n  `field=value` pair. Tags added since the snapshot are not removed.\n\n**Restoring over an existing object is irreversible** and requires a separate,\nexplicit confirmation in the UI. If KO History also has a snapshot of what you\noverwrote, that snapshot is your way back. If it does not, there is none.\n\n**You need write access** to `data/ui/views` (or the relevant endpoint) in the\ntarget app. Restore is an admin capability by design; see Permissions below.\n"
+      }
+    },
+    "viz_md_history": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "## Reading the version list\n\nA few behaviours surprise people the first time.\n\n- **The oldest snapshot is labelled \"created\".** It is the earliest record the\n  app holds, which is not necessarily when the object was created: anything\n  before the capture searches were enabled is simply not there. Backfill and\n  catch-up events carry the object's own edit time, exactly like the incremental\n  capture, so seeding the index does not flatten your history to one date.\n  Backfill events also carry `backfill=1`, so you can always tell a seeded\n  snapshot from one observed live.\n- **A knowledge object that has never been edited has no timestamp at all.**\n  Splunk's REST API reports epoch 0 for one, which renders as 1970 in UTC and as\n  1969 anywhere west of it, and `strptime` returns null for that value rather\n  than 0. The capture searches therefore parse the timestamp first and then test\n  the resulting epoch, which is the only form of the test that works in every\n  timezone. The format string matters just as much: it carries no literal `+`\n  before `%:z`, because a `+` there matches only a positive UTC offset and would\n  make every object on a search head west of UTC look like it had no timestamp.\n- **What those objects are dated, and why it differs by search.** The\n  incremental capture maps them to a fixed **2010-01-01**. That is an exclusion\n  sentinel, not a guess: its job is to be older than the capture window so the\n  `where updated>now` clause drops the row, which is what stops a never-edited\n  object being re-captured every fifteen minutes forever. It has to be fixed\n  rather than relative, or the same object would be stamped differently on every\n  run, and it has to stay inside `frozenTimePeriodInSecs` (20 years as shipped),\n  which means 2010 stops being safe around 2030.\n\n  The backfill and catch-up searches keep the value instead of discarding it, so\n  a constant there would be a visible falsehood: every undated object in your\n  environment sharing one meaningless date. They date it **one second past the\n  start of the year of the oldest edit that run could see**. The claim is only\n  \"at least as old as anything else here\", which is the strongest true statement\n  available for an object carrying no timestamp, and the odd `:01` second is the\n  marker that says the date was manufactured rather than read. If nothing in the\n  run has a usable timestamp at all, they fall back to the time the search ran.\n- **Delete and move rows have no source.** They come from the audit stream, so\n  they cannot be previewed, diffed or restored. They tell you *what happened*\n  and *who did it*, not *what it looked like*.\n- **The version list is capped at the 200 most recent** entries per object. A KO\n  edited hundreds of times will not show its whole history in the picker.\n- **Preview runs the dashboard's real searches.** A snapshot preview is a live\n  render, so a heavy dashboard costs what it normally costs. The cost flag on\n  the panel warns before you commit, and calls out unbounded time ranges, which\n  are usually the expensive part.\n- **Comparing writes two scratch views**, `kohist_cmp_baseline_<user>` and\n  `kohist_cmp_target_<user>`, inside this app. Your real objects are never\n  touched, and the slots are per-user so two admins do not collide.\n"
+      }
+    },
+    "viz_img_pairing": {
+      "type": "splunk.image",
+      "options": {
+        "src": "/static/app/ko_history/images/version-pairing.svg",
+        "preserveAspectRatio": true
+      }
+    },
+    "viz_md_permissions": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "## Permissions (read before granting anything)\n\n`metadata/default.meta` grants read to all roles and write to `admin` and\n`sc_admin`. **Do not broaden the `[views]` write stanza.**\n\nThe reason is specific, not cautious boilerplate. All bundled visualizations\nexport as `system`, so they are usable from dashboards in any app. Any role\ngranted `[views]` write **in this app** therefore gains a view create-and-\noverwrite primitive that is reachable from any dashboard, fleet-wide. The\nbrowser approval prompt in the wrapper is a convenience, not a security control:\nit runs client-side and cannot be relied on as a gate.\n\nIf non-admin roles genuinely need preview or restore, the supported path is a\nconstrained server-side endpoint (a custom REST handler enforcing per-user and\nper-slot limits), not a wider write grant.\n\n**The settings page follows the same rule.** `ko_history.conf` is readable by\neveryone, because the wrapper has to know whether restore is enabled before it\ncan draw the button, and writable by `admin` and `sc_admin` only. The page\ndecides whether to show you controls or a read-only view by asking the endpoint\nwhether *you* can write that stanza, so it stays correct if you change the\npermissions rather than depending on a hardcoded role name.\n\nBeing explicit about the limits of that: these settings are a policy control,\nnot a security boundary. Anyone who can restore through KO History can already\ncreate or overwrite the same objects through Splunk's own UI. What the settings\ngive you is a deliberate switch and a default of off, so nobody restores\nsomething by reflex on an instance where that was never intended.\n"
+      }
+    },
+    "viz_md_troubleshooting": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "## Troubleshooting\n\n**The KO table is empty.** The index exists but nothing has been captured yet.\nConfirm the searches are enabled and that at least one cron cycle has passed.\n`index=ko_history | stats count by source` tells you immediately whether events\nare arriving and from which search.\n\n**A dashboard I know exists has no versions.** The backups only capture objects\nthat change. Until someone edits it, or you run the matching backfill, there is\nnothing to show.\n\n**Versions load slowly, or time out.** The wrapper bounds a version search at 30\nseconds and then offers Retry. A consistently slow search usually means a very\nlarge index with a wide time range; the searches deliberately run over all time\nbecause backfilled events can carry old timestamps.\n\n**Opening KO History or Settings returns a server error.** Almost always a\nmissing restart, and it is the single most common thing to go wrong on a fresh\ninstall. The symptom is a 5xx error page, usually a 500, sometimes with a stack\ntrace ending in\n\n```\nTopLevelLookupException: failed to locate the template for uri\n'ko_history:/templates/wrapper.html'\n```\n\nBoth pages are React pages served from a Mako template plus a static bundle, and\nSplunk resolves both when the appserver **starts**, so before a restart they\ncannot be found. Nothing prompts you to restart, on Splunk Cloud or on\nEnterprise. Restart Splunk and open the page again. Every other page in the app,\nincluding this one, works without the restart, so a working nav and a broken\nmain page is exactly the expected shape of this problem.\n\n**The wrapper page looks stale after an upgrade.** Same cause, different symptom:\nthe bundle Splunk resolved at startup is the previous version's. Copying files or\nreloading the app is not enough, and a stale bundle is more confusing than a\nmissing one because the page loads and merely behaves oddly. A **full\n`splunk restart`** is required after every upgrade, not just the first install.\n\n**Preview boxes do not appear.** The in-iframe highlighter tries a ladder of\nselectors and may need tuning on an unusual Splunk build. The structural change\nlist and the source diff never depend on the iframe DOM, so they still work.\n"
+      }
+    },
+    "viz_md_install": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "## Install & rebuild notes\n\n- **Deploy = tarball only.** `./build.sh` at the repo root builds the custom-viz\n  bundles + the React page and packages `dist/ko_history-<version>.tar.gz`.\n  Install that tarball; do **not** hand-edit files inside a running Splunk.\n- **Full restart for the React bundle.** Changes to the wrapper's static bundle\n  need a full `splunk restart` (a reload is not enough) plus a hard browser\n  refresh.\n- **Regenerate dashboards** after editing their generators:\n  `python3 tools/gen_ko_version_ds.py` and `python3 tools/gen_ko_help.py`.\n- **This page** is generated by `tools/gen_ko_help.py`: edit the markdown there,\n  not the committed XML.\n"
+      }
+    },
+    "viz_md_changes": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "## Notable changes\n\n**1.1.0**\n\n- The REST API Explorer and KO Statistics dashboards were removed. They were\n  development tools rather than product surfaces.\n- Searches now run as asynchronous jobs and are polled, replacing a blocking\n  call that could leave the preview panel loading indefinitely on a slow\n  instance.\n- Every shipped search carries inline SPL comments.\n- Apache-2.0 `LICENSE` ships with the app.\n\n**1.0.3**\n\n- `json_viewer` was renamed to `source_viewer`, and `dashboard_preview_ds` was\n  removed. If you reference `ko_history.json_viewer` or\n  `ko_history.dashboard_preview_ds` from your own dashboards, update them.\n"
+      }
     }
   },
   "layout": {
@@ -137,15 +137,15 @@
         },
         {
           "layoutId": "layout_2",
-          "label": "Operating"
+          "label": "Architecture"
         },
         {
           "layoutId": "layout_3",
-          "label": "Troubleshooting"
+          "label": "Operating"
         },
         {
           "layoutId": "layout_4",
-          "label": "Architecture"
+          "label": "Troubleshooting"
         }
       ],
       "options": {
@@ -158,7 +158,7 @@
         "type": "absolute",
         "options": {
           "width": 1280,
-          "height": 1404
+          "height": 1482
         },
         "structure": [
           {
@@ -168,7 +168,7 @@
               "x": 0,
               "y": 0,
               "w": 1280,
-              "h": 452
+              "h": 532
             }
           },
           {
@@ -176,9 +176,9 @@
             "type": "block",
             "position": {
               "x": 0,
-              "y": 472,
+              "y": 552,
               "w": 1280,
-              "h": 532
+              "h": 540
             }
           },
           {
@@ -186,9 +186,9 @@
             "type": "block",
             "position": {
               "x": 0,
-              "y": 1024,
+              "y": 1112,
               "w": 1280,
-              "h": 340
+              "h": 330
             }
           }
         ]
@@ -197,105 +197,7 @@
         "type": "absolute",
         "options": {
           "width": 1280,
-          "height": 2399
-        },
-        "structure": [
-          {
-            "item": "viz_md_operating",
-            "type": "block",
-            "position": {
-              "x": 0,
-              "y": 0,
-              "w": 1280,
-              "h": 687
-            }
-          },
-          {
-            "item": "viz_md_restore",
-            "type": "block",
-            "position": {
-              "x": 0,
-              "y": 707,
-              "w": 1280,
-              "h": 548
-            }
-          },
-          {
-            "item": "viz_md_history",
-            "type": "block",
-            "position": {
-              "x": 0,
-              "y": 1275,
-              "w": 1280,
-              "h": 401
-            }
-          },
-          {
-            "item": "viz_img_pairing",
-            "type": "block",
-            "position": {
-              "x": 0,
-              "y": 1696,
-              "w": 1280,
-              "h": 380
-            }
-          },
-          {
-            "item": "viz_md_permissions",
-            "type": "block",
-            "position": {
-              "x": 0,
-              "y": 2096,
-              "w": 1280,
-              "h": 263
-            }
-          }
-        ]
-      },
-      "layout_3": {
-        "type": "absolute",
-        "options": {
-          "width": 1280,
-          "height": 1087
-        },
-        "structure": [
-          {
-            "item": "viz_md_troubleshooting",
-            "type": "block",
-            "position": {
-              "x": 0,
-              "y": 0,
-              "w": 1280,
-              "h": 364
-            }
-          },
-          {
-            "item": "viz_md_install",
-            "type": "block",
-            "position": {
-              "x": 0,
-              "y": 384,
-              "w": 1280,
-              "h": 288
-            }
-          },
-          {
-            "item": "viz_md_changes",
-            "type": "block",
-            "position": {
-              "x": 0,
-              "y": 692,
-              "w": 1280,
-              "h": 355
-            }
-          }
-        ]
-      },
-      "layout_4": {
-        "type": "absolute",
-        "options": {
-          "width": 1280,
-          "height": 4765
+          "height": 4333
         },
         "structure": [
           {
@@ -325,7 +227,7 @@
               "x": 0,
               "y": 695,
               "w": 1280,
-              "h": 1212
+              "h": 1065
             }
           },
           {
@@ -333,7 +235,7 @@
             "type": "block",
             "position": {
               "x": 0,
-              "y": 1927,
+              "y": 1780,
               "w": 1280,
               "h": 470
             }
@@ -343,7 +245,7 @@
             "type": "block",
             "position": {
               "x": 0,
-              "y": 2417,
+              "y": 2270,
               "w": 1280,
               "h": 1023
             }
@@ -353,9 +255,9 @@
             "type": "block",
             "position": {
               "x": 0,
-              "y": 3460,
+              "y": 3313,
               "w": 1280,
-              "h": 485
+              "h": 370
             }
           },
           {
@@ -363,7 +265,7 @@
             "type": "block",
             "position": {
               "x": 0,
-              "y": 3965,
+              "y": 3703,
               "w": 1280,
               "h": 330
             }
@@ -373,9 +275,107 @@
             "type": "block",
             "position": {
               "x": 0,
-              "y": 4315,
+              "y": 4053,
               "w": 1280,
-              "h": 410
+              "h": 240
+            }
+          }
+        ]
+      },
+      "layout_3": {
+        "type": "absolute",
+        "options": {
+          "width": 1280,
+          "height": 2319
+        },
+        "structure": [
+          {
+            "item": "viz_md_operating",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 0,
+              "w": 1280,
+              "h": 480
+            }
+          },
+          {
+            "item": "viz_md_restore",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 500,
+              "w": 1280,
+              "h": 485
+            }
+          },
+          {
+            "item": "viz_md_history",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 1005,
+              "w": 1280,
+              "h": 449
+            }
+          },
+          {
+            "item": "viz_img_pairing",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 1474,
+              "w": 1280,
+              "h": 380
+            }
+          },
+          {
+            "item": "viz_md_permissions",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 1874,
+              "w": 1280,
+              "h": 405
+            }
+          }
+        ]
+      },
+      "layout_4": {
+        "type": "absolute",
+        "options": {
+          "width": 1280,
+          "height": 1084
+        },
+        "structure": [
+          {
+            "item": "viz_md_troubleshooting",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 0,
+              "w": 1280,
+              "h": 494
+            }
+          },
+          {
+            "item": "viz_md_install",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 514,
+              "w": 1280,
+              "h": 240
+            }
+          },
+          {
+            "item": "viz_md_changes",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 774,
+              "w": 1280,
+              "h": 270
             }
           }
         ]

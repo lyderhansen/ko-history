@@ -12,10 +12,10 @@ import React from 'react';
 // Not to be confused with `layout`, which is a different option controlling
 // whether the bars are fixed or scroll away.
 import layout from '@splunk/react-page';
-import WrapperApp from '../../components/WrapperApp';
+import SettingsApp from '../../components/SettingsApp';
 
-layout(<WrapperApp />, {
-    pageTitle: 'KO History: Wrapper',
+layout(<SettingsApp />, {
+    pageTitle: 'KO History: Settings',
     hideFooter: true,
     layout: 'fixed',
     navLayout: 'auto',

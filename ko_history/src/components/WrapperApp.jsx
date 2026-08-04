@@ -1,7 +1,7 @@
 import React from 'react';
 import { SplunkThemeProvider } from '@splunk/themes';
-import { oneshot, upsertView, restoreView, upsertSavedSearch, viewExists, savedSearchExists, savedSearchUrl, listApps, viewUrl, previewUrl, splQuote, KO_INDEX, VIEW_SOURCES, REPORT_SOURCES, sourcesForClass, PREVIEW_APP, SLOT_BASELINE, SLOT_TARGET, restoreKO, koManagerUrl } from '../util/splunkRest';
-import { canRestoreClass } from '../util/koClass';
+import { oneshot, upsertView, restoreView, upsertSavedSearch, viewExists, savedSearchExists, savedSearchUrl, listApps, viewUrl, previewUrl, splQuote, KO_INDEX, VIEW_SOURCES, REPORT_SOURCES, sourcesForClass, PREVIEW_APP, SLOT_BASELINE, SLOT_TARGET, restoreKO, koManagerUrl, readRestoreSettings, canWritePreviewSlots, canCreateIn } from '../util/splunkRest';
+import { isRestoreAllowed, restoreBlockReason } from '../util/restoreSettings';
 import { parseMarker } from '../util/markerParse';
 import { versionSearchTerms } from '../util/versionSearchTerms';
 import { toLines, lineDiff } from '../util/diff';
@@ -53,6 +53,18 @@ const ELAPSED_AFTER_S = 5;
 // and BlendView (all module-level functions, outside the WrapperApp closure —
 // they can't reach the panel's own btnPrimary/btnRestore builders, so these are
 // standalone equivalents at the small toolbar size: padding 5px 11px, 12px).
+/* Splunk's own chrome renders at z-index 10000 (the only z-index in
+ * @splunk/react-page). Before the modern nav that never mattered, because the
+ * classic bar sat above the page rather than beside it; with the left sidebar
+ * our modals were painting UNDERNEATH it and losing their left edge.
+ *
+ * Derived from that value rather than picked, so the reason survives: anything
+ * of ours that must cover the chrome goes above CHROME_Z. */
+const CHROME_Z = 10000;
+const MODAL_Z = CHROME_Z + 100;
+/* Modals opened from inside another modal (approval over compare). */
+const MODAL_Z_ELEVATED = MODAL_Z + 100;
+
 const KIT = kitStyles();
 function btnPrimarySmall(enabled) {
     return {
@@ -65,7 +77,12 @@ function btnRestoreSmall(enabled) {
     return {
         ...KIT.btnBase, width: 'auto', padding: '5px 11px', fontSize: 12,
         background: enabled ? PAL.restoreBg : PAL.field, color: enabled ? PAL.restoreText : PAL.text3,
-        borderColor: enabled ? PAL.restoreBorder : 'transparent', transition: 'background .12s, border-color .12s',
+        // See disabledCue(): btnBase always sets cursor:pointer, so a disabled
+        // button reads as live unless this is overridden.
+        borderColor: enabled ? PAL.restoreBorder : PAL.edgeSoft,
+        opacity: enabled ? 1 : 0.5,
+        cursor: enabled ? 'pointer' : 'not-allowed',
+        transition: 'background .12s, border-color .12s, opacity .12s',
     };
 }
 // Ghost button for BlendView's zoom/align controls (ⓘ-notice-adjacent chrome,
@@ -599,6 +616,25 @@ export default function WrapperApp() {
     const [sel, setSel] = React.useState(null); // {title, appName}
     const [selectedEpoch, setSelectedEpoch] = React.useState(null);
 
+    // Which KO types an admin has enabled restore for, from ko_history.conf.
+    // Fetched once: it is an instance-wide setting, not per selection.
+    // 'loading' | 'ok' | 'error' — the wrapper distinguishes the three so a
+    // greyed-out Restore button can say which of them is the reason.
+    const [restoreSettingsState, setRestoreSettingsState] = React.useState('loading');
+    const [restoreEnabled, setRestoreEnabled] = React.useState([]);
+
+    // Can this user write the preview slot views? Preview and compare write two
+    // scratch views into ko_history and iframe them, and metadata/default.meta
+    // grants that to admin and sc_admin only (deliberately: the vizs export
+    // system-wide, so a wider grant would be a view-overwrite primitive reachable
+    // fleet-wide). Without this probe a non-admin gets the full approval dialog
+    // and then a 403, which is the same looks-live-does-nothing trap as before.
+    // null = still checking.
+    const [canPreview, setCanPreview] = React.useState(null);
+    // Same question for the app a restore would write INTO, re-checked whenever
+    // the target app changes. null = unknown or still checking.
+    const [canWriteTarget, setCanWriteTarget] = React.useState(null);
+
     const [versions, setVersions] = React.useState([]);
     const [versionsErr, setVersionsErr] = React.useState('');
     const [loadingVersions, setLoadingVersions] = React.useState(false);
@@ -648,6 +684,79 @@ export default function WrapperApp() {
             .catch(() => { if (!cancelled) setAppsLoadErr(true); });
         return () => { cancelled = true; };
     }, []);
+
+    // Restore is opt-in, so this fails closed: any error leaves the enabled list
+    // empty and marks the state 'error', which blocks restore and lets the
+    // button explain that the settings could not be read rather than implying
+    // an admin turned the feature off.
+    //
+    // Re-read whenever the tab regains focus, not only on mount. The settings
+    // live on a different page, so the normal flow is: open the wrapper, go
+    // enable restore, come back. A mount-only fetch means the admin returns to a
+    // wrapper still insisting restore is off, naming the page they just saved.
+    // It matters in the other direction too: switching restore OFF should reach
+    // tabs that are already open rather than waiting for a reload.
+    React.useEffect(() => {
+        let cancelled = false;
+        let inFlight = false;
+
+        const load = () => {
+            if (cancelled || inFlight) return;
+            inFlight = true;
+            readRestoreSettings()
+                .then((res) => {
+                    if (cancelled) return;
+                    setRestoreEnabled(res.enabled);
+                    setRestoreSettingsState('ok');
+                })
+                .catch((e) => {
+                    if (cancelled) return;
+                    setRestoreEnabled([]);
+                    // A permission failure is not a transient one. Telling the
+                    // user to reload when reloading can never help is worse than
+                    // saying nothing.
+                    setRestoreSettingsState(e && e.code === 'FORBIDDEN' ? 'forbidden' : 'error');
+                })
+                .then(() => { inFlight = false; });
+        };
+
+        load();
+        const onVisible = () => {
+            if (typeof document === 'undefined' || document.visibilityState !== 'hidden') load();
+        };
+        window.addEventListener('focus', onVisible);
+        document.addEventListener('visibilitychange', onVisible);
+        return () => {
+            cancelled = true;
+            window.removeEventListener('focus', onVisible);
+            document.removeEventListener('visibilitychange', onVisible);
+        };
+    }, []);
+
+    // One cheap probe, once: may this user create the preview slot views?
+    React.useEffect(() => {
+        let cancelled = false;
+        canWritePreviewSlots()
+            .then((yes) => { if (!cancelled) setCanPreview(!!yes); })
+            .catch(() => { if (!cancelled) setCanPreview(false); });
+        return () => { cancelled = true; };
+    }, []);
+
+    // And may they create objects in whichever app they have picked to restore
+    // into? Re-probed on every change of the target app dropdown.
+    React.useEffect(() => {
+        if (!restoreApp) { setCanWriteTarget(null); return undefined; }
+        let cancelled = false;
+        setCanWriteTarget(null);
+        // Not `isSaved`: that is derived further down the component, so reading
+        // it here would hit its temporal dead zone. `sel` is state, declared at
+        // the top, and carries the same information.
+        const savedSearch = !!(sel && sel.koClass === 'savedsearch');
+        canCreateIn(restoreApp, savedSearch ? 'saved/searches' : 'data/ui/views')
+            .then((yes) => { if (!cancelled) setCanWriteTarget(!!yes); })
+            .catch(() => { if (!cancelled) setCanWriteTarget(false); });
+        return () => { cancelled = true; };
+    }, [restoreApp, sel]);
 
     // ── embedded ko_version_ds dashboard (same origin) ──
     const dashUrl = React.useMemo(() => {
@@ -1029,9 +1138,26 @@ export default function WrapperApp() {
     // Saved searches can only be restored from a real config snapshot (an
     // audit-only DELETE/MOVE marker carries no SPL to write back).
     const restoreReady = !!(restoreVer && restoreApp && restoreName && (!restoreVer.ss || restoreVer.isConfig));
-    // v1.0: restore ships for dashboards + reports only (the 5 generic types
-    // are captured/viewable but not yet restorable).
-    const restoreAllowed = !!(sel && canRestoreClass(sel.koClass));
+    // Restore is allowed only where an admin has enabled it AND a shipped
+    // implementation exists. effectiveAllowed() inside isRestoreAllowed()
+    // applies both, so enabling an untested type in conf changes nothing here.
+    const restoreAllowed = !!(
+        sel &&
+        restoreSettingsState === 'ok' &&
+        isRestoreAllowed(sel.koClass, restoreEnabled)
+    );
+    // Why not, in words, for the disabled button's tooltip. Empty when allowed.
+    const restoreBlockedWhy = sel
+        ? restoreBlockReason(sel.koClass, restoreEnabled, restoreSettingsState)
+        : '';
+    // A disabled Restore button always says why it is disabled. Policy and
+    // availability come from restoreBlockReason; restoreReady is the separate
+    // case of an audit-only row, which carries no source to write back.
+    const restoreTip = !restoreAllowed
+        ? (restoreBlockedWhy || 'Restore this version')
+        : (!restoreReady
+            ? 'This entry records a delete or move, so it has no captured source to restore. Choose a version captured from configuration.'
+            : 'Restore this version');
     const isFieldsKO = isSaved || isGeneric;
     const latest = versions[0];
     const oldest = versions[versions.length - 1];
@@ -1198,9 +1324,17 @@ export default function WrapperApp() {
         transition: 'background .12s, border-color .12s' });
     const btnSecondary = { ...K.btnBase, background: 'transparent', color: PAL.text, borderColor: PAL.edge,
         transition: 'background .12s, border-color .12s' };
+    // K.btnBase hardcodes cursor:pointer, and the old disabled state was just a
+    // flat dark box with grey text. That reads as an ordinary button, so a
+    // Restore that was off by policy looked like one that simply did nothing
+    // when clicked. Disabled now says so: muted outline, reduced opacity, and a
+    // not-allowed cursor. The reason itself is in the title tooltip.
     const btnRestore = (enabled) => ({ ...K.btnBase,
         background: enabled ? PAL.restoreBg : PAL.field, color: enabled ? PAL.restoreText : PAL.text3,
-        borderColor: enabled ? PAL.restoreBorder : 'transparent', transition: 'background .12s, border-color .12s' });
+        borderColor: enabled ? PAL.restoreBorder : PAL.edgeSoft,
+        opacity: enabled ? 1 : 0.5,
+        cursor: enabled ? 'pointer' : 'not-allowed',
+        transition: 'background .12s, border-color .12s, opacity .12s' });
     // Destructive confirm (restore-over-existing). Deliberately distinct from
     // btnRestore's amber: overwrite is the only irreversible action here, so it
     // reads in the danger hue rather than borrowing the normal restore look.
@@ -1229,7 +1363,13 @@ export default function WrapperApp() {
 
     return (
         <SplunkThemeProvider family="prisma" colorScheme="dark" density="comfortable">
-            <div style={{ display: 'flex', height: 'calc(100vh - 56px)', minHeight: 400, background: '#171d21', fontFamily: SANS }}>
+            <div style={{ display: 'flex', height: 'calc(100vh - 56px)', minHeight: 400,
+                /* The reopen tab is positioned at right:0 of the left column, so
+                   if this root is ever wider than its parent the tab lands off
+                   screen. The modern nav puts us in a flex row beside the
+                   sidebar, where an unconstrained width does exactly that. */
+                width: '100%', maxWidth: '100%', boxSizing: 'border-box', overflowX: 'hidden',
+                background: '#171d21', fontFamily: SANS }}>
                 {/* Left: ko_version_ds dashboard, fills available width */}
                 <div style={{ flex: '1 1 auto', minWidth: 0, position: 'relative', background: '#171d21' }}>
                     <iframe
@@ -1240,17 +1380,23 @@ export default function WrapperApp() {
                     />
                     {/* Reopen handle — a vertical tab on the right edge, clear of the DS toolbar */}
                     {!paneOpen ? (
-                        <button
-                            type="button"
+                        <HoverBtn
                             onClick={() => setPaneOpen(true)}
-                            style={{
+                            title="Open the preview and compare pane"
+                            base={{
                                 position: 'absolute',
                                 top: '50%',
                                 right: 0,
                                 transform: 'translateY(-50%)',
-                                background: '#1a73e8',
-                                color: '#fff',
-                                border: 0,
+                                /* Was a raw #1a73e8, which is a full-saturation blue
+                                   from another palette entirely and read as the
+                                   loudest thing on a deliberately quiet page. These
+                                   are the same tokens every other primary button in
+                                   the wrapper uses. */
+                                background: PAL.primaryBtn,
+                                color: PAL.primaryBtnText,
+                                border: `1px solid ${PAL.edge}`,
+                                borderRight: 'none',
                                 borderRadius: '6px 0 0 6px',
                                 padding: '16px 7px',
                                 cursor: 'pointer',
@@ -1260,10 +1406,12 @@ export default function WrapperApp() {
                                 fontFamily: 'inherit',
                                 zIndex: 5,
                                 boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
+                                transition: 'background .12s',
                             }}
+                            hover={{ background: PAL.primaryBtnHover }}
                         >
                             ‹ Preview &amp; Compare
-                        </button>
+                        </HoverBtn>
                     ) : null}
                 </div>
 
@@ -1363,6 +1511,14 @@ export default function WrapperApp() {
                                             onSelect={setPaneTab}
                                         />
                                         <div style={{ marginTop: 16 }}>
+                                            {/* The Restore pane is entirely about restoring, so a
+                                                greyed-out button with a tooltip is not enough here:
+                                                say why in the pane itself, above the form. */}
+                                            {paneTab === 'restore' && !restoreAllowed && restoreBlockedWhy ? (
+                                                <div style={{ marginBottom: 14 }}>
+                                                    <Notice warn inline>{restoreBlockedWhy}</Notice>
+                                                </div>
+                                            ) : null}
                                             {paneTab === 'compare' ? (
                                                 <React.Fragment>
                                                     {singleVersion ? (
@@ -1482,7 +1638,7 @@ export default function WrapperApp() {
                                                     <FocusCtrl as="input" style={ctrl} value={restoreName} onChange={(e) => setRestoreName(e.target.value)} placeholder={sel.title} spellCheck={false} />
 
                                                     <div style={{ marginTop: 14 }}>
-                                                        <HoverBtn base={btnRestore(restoreReady && restoreAllowed)} hover={{ background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }} disabled={!(restoreReady && restoreAllowed)} title="Restore this version" onClick={() => restoreReady && restoreAllowed && setRestore({ busy: false, error: '' })}>
+                                                        <HoverBtn base={btnRestore(restoreReady && restoreAllowed)} hover={{ background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }} disabled={!(restoreReady && restoreAllowed)} title={restoreTip} onClick={() => restoreReady && restoreAllowed && setRestore({ busy: false, error: '' })}>
                                                             ⟲ Restore this version…
                                                         </HoverBtn>
                                                         <div style={{ marginTop: 6, fontSize: 11.5, color: PAL.text3 }}>
@@ -1492,7 +1648,10 @@ export default function WrapperApp() {
                                                 </React.Fragment>
                                             ) : isGeneric ? (
                                                 <div style={{ fontSize: 11.5, color: PAL.text3, lineHeight: 1.5 }}>
-                                                    Restore for {prettyKoType(targetVer && targetVer.fields).toLowerCase()}s is coming. Version history, inspect, and compare are live.
+                                                    {/* The notice above already says restore has not
+                                                        shipped for this type; this adds what DOES work
+                                                        rather than repeating it. */}
+                                                    Version history, inspect and compare are live for {prettyKoType(targetVer && targetVer.fields).toLowerCase()}s.
                                                 </div>
                                             ) : (
                                                 /* ── Restore: recover a captured version into a real dashboard ── */
@@ -1515,7 +1674,7 @@ export default function WrapperApp() {
                                                     <FocusCtrl as="input" style={{ ...ctrl, ...K.mono, fontSize: 12.5 }} value={restoreName} onChange={(e) => setRestoreName(e.target.value)} placeholder={sel.title} spellCheck={false} />
 
                                                     <div style={{ marginTop: 14 }}>
-                                                        <HoverBtn base={btnRestore(restoreReady && restoreAllowed)} hover={{ background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }} disabled={!(restoreReady && restoreAllowed)} title="Restore this version" onClick={() => restoreReady && restoreAllowed && setRestore({ busy: false, error: '' })}>
+                                                        <HoverBtn base={btnRestore(restoreReady && restoreAllowed)} hover={{ background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }} disabled={!(restoreReady && restoreAllowed)} title={restoreTip} onClick={() => restoreReady && restoreAllowed && setRestore({ busy: false, error: '' })}>
                                                             ⟲ Restore this version…
                                                         </HoverBtn>
                                                         <div style={{ marginTop: 10, fontSize: 11.5, color: PAL.text3, lineHeight: 1.5 }}>
@@ -1579,9 +1738,22 @@ export default function WrapperApp() {
                                 </div>
                             ))}
                         </div>
-                        {approval.error ? <div style={{ color: PAL.danger, marginTop: 8 }}>Error: {approval.error}</div> : null}
+                        {/* Say it up front rather than after the user commits.
+                            Writing the slots needs [views] write in this app,
+                            which is admin and sc_admin by design. */}
+                        {canPreview === false ? (
+                            <Notice warn>
+                                Preview and compare write scratch views into the {PREVIEW_APP} app, and your
+                                account cannot write there. Ask a Splunk admin for write access to {PREVIEW_APP},
+                                or keep using the source and diff views, which need no write access.
+                            </Notice>
+                        ) : null}
+                        {approval.error ? <div style={{ color: PAL.danger, marginTop: 8 }}>{approval.error}</div> : null}
                         <div style={{ marginTop: 18, display: 'flex', gap: 10 }}>
-                            <HoverBtn base={{ ...btnPrimary(true), width: 'auto' }} hover={{ background: PAL.primaryBtnHover }} disabled={approval.busy} onClick={doRender}>
+                            <HoverBtn base={{ ...btnPrimary(canPreview !== false), width: 'auto' }} hover={{ background: PAL.primaryBtnHover }}
+                                disabled={approval.busy || canPreview === false}
+                                title={canPreview === false ? 'Your account cannot write preview views in the ' + PREVIEW_APP + ' app.' : undefined}
+                                onClick={() => canPreview !== false && doRender()}>
                                 {approval.busy ? <><Spinner size={12} color={PAL.primaryBtnText} /> Rendering…</> : 'Approve & render'}
                             </HoverBtn>
                             <HoverBtn base={{ ...btnSecondary, width: 'auto' }} hover={{ borderColor: PAL.text3 }} disabled={approval.busy} onClick={() => setApproval(null)}>
@@ -1595,7 +1767,7 @@ export default function WrapperApp() {
             {restore ? (
                 <Modal
                     title={isSaved ? 'Restore saved search' : isGeneric ? `Restore ${(sel && sel.koClass) || 'object'}` : 'Restore dashboard'}
-                    zIndex={1100}
+                    zIndex={MODAL_Z_ELEVATED}
                     onClose={restore.busy ? null : () => setRestore(null)}
                 >
                     <div style={{ padding: '16px 18px 18px', color: PAL.text, fontSize: 13, lineHeight: 1.6, overflow: 'auto' }}>
@@ -1707,7 +1879,16 @@ export default function WrapperApp() {
                                         Writes a <b>real dashboard</b> into Splunk. You need write access to the target app.
                                     </Notice>
                                 )}
-                                {restore.error ? <div style={{ color: PAL.danger, marginTop: 10, fontSize: 12.5 }}>Error: {restore.error}</div> : null}
+                                {/* Checked before the user commits, not after: the
+                                    target app dropdown lists every app, but write
+                                    access is per app and usually admin-only. */}
+                                {canWriteTarget === false ? (
+                                    <Notice warn>
+                                        Your account cannot create objects in the <b>{restoreApp}</b> app, so this
+                                        restore would be refused. Choose an app you can write to, or ask a Splunk admin.
+                                    </Notice>
+                                ) : null}
+                                {restore.error ? <div style={{ color: PAL.danger, marginTop: 10, fontSize: 12.5 }}>{restore.error}</div> : null}
 
                                 {/* Two-step overwrite guard: when the target exists, block the normal
                                     confirm path and require an explicit separate "Overwrite" click. */}
@@ -1727,10 +1908,11 @@ export default function WrapperApp() {
                                         </div>
                                         <div style={{ display: 'flex', gap: 10 }}>
                                             <HoverBtn
-                                                base={{ ...btnDanger(restoreReady), width: 'auto' }}
+                                                base={{ ...btnDanger(restoreReady && restoreAllowed && canWriteTarget !== false), width: 'auto' }}
                                                 hover={{ background: PAL.dangerBgHover }}
-                                                disabled={restore.busy || !restoreReady}
-                                                onClick={() => setRestoreOverwrite(true)}
+                                                disabled={restore.busy || !restoreReady || !restoreAllowed || canWriteTarget === false}
+                                                title={!restoreAllowed ? restoreTip : canWriteTarget === false ? 'Your account cannot write to the ' + restoreApp + ' app.' : undefined}
+                                                onClick={() => restoreAllowed && canWriteTarget !== false && setRestoreOverwrite(true)}
                                             >
                                                 Overwrite existing {isSaved ? 'saved search' : isGeneric ? (sel ? sel.koClass : 'object') : 'dashboard'}
                                             </HoverBtn>
@@ -1742,11 +1924,12 @@ export default function WrapperApp() {
                                 ) : (
                                     <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
                                         <HoverBtn
-                                            base={{ ...(restoreOverwrite ? btnDanger(restoreReady && restoreNameExists !== null)
-                                                                        : btnRestore(restoreReady && restoreNameExists !== null)), width: 'auto' }}
+                                            base={{ ...(restoreOverwrite ? btnDanger(restoreReady && restoreAllowed && canWriteTarget !== false && restoreNameExists !== null)
+                                                                        : btnRestore(restoreReady && restoreAllowed && canWriteTarget !== false && restoreNameExists !== null)), width: 'auto' }}
                                             hover={restoreOverwrite ? { background: PAL.dangerBgHover } : { background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }}
-                                            disabled={restore.busy || !restoreReady || restoreNameExists === null}
-                                            onClick={() => doRestore(restoreOverwrite)}
+                                            disabled={restore.busy || !restoreReady || !restoreAllowed || canWriteTarget === false || restoreNameExists === null}
+                                            title={!restoreAllowed ? restoreTip : canWriteTarget === false ? 'Your account cannot write to the ' + restoreApp + ' app.' : undefined}
+                                            onClick={() => restoreAllowed && canWriteTarget !== false && doRestore(restoreOverwrite)}
                                         >
                                             {restore.busy
                                                 ? <><Spinner size={12} color={restoreOverwrite ? PAL.danger : PAL.restoreText} /> Restoring…</>
@@ -1774,13 +1957,17 @@ export default function WrapperApp() {
                         {cmpTab !== 'visual' ? (
                             <React.Fragment>
                                 <span style={{ flex: 1 }} />
+                                {/* These two were hardcoded enabled. openRestore()
+                                    guards on restoreAllowed and returns silently,
+                                    so with restore off they looked live and did
+                                    nothing when clicked. */}
                                 <span style={{ color: PAL.text3, fontSize: 11.5, marginRight: 2 }}>Restore</span>
                                 {!singleVersion ? (
-                                    <HoverBtn base={btnRestoreSmall(true)} hover={{ background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }} title="Restore the older version" onClick={() => openRestore(baseIdx)}>
+                                    <HoverBtn base={btnRestoreSmall(restoreAllowed)} hover={{ background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }} disabled={!restoreAllowed} title={restoreAllowed ? 'Restore the older version' : restoreTip} onClick={() => restoreAllowed && openRestore(baseIdx)}>
                                         ⟲ Older
                                     </HoverBtn>
                                 ) : null}
-                                <HoverBtn base={btnRestoreSmall(true)} hover={{ background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }} title={singleVersion ? 'Restore this version' : 'Restore the newer version'} onClick={() => openRestore(targetIdx)}>
+                                <HoverBtn base={btnRestoreSmall(restoreAllowed)} hover={{ background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }} disabled={!restoreAllowed} title={restoreAllowed ? (singleVersion ? 'Restore this version' : 'Restore the newer version') : restoreTip} onClick={() => restoreAllowed && openRestore(targetIdx)}>
                                     {singleVersion ? '⟲ Restore this version' : '⟲ Newer'}
                                 </HoverBtn>
                             </React.Fragment>
@@ -1799,7 +1986,7 @@ export default function WrapperApp() {
                                             <CostFlag a={cmpTargetHeavy} />
                                         </div>
                                     ) : null}
-                                    <CompareColumn tag="Version" label={compare.targetLabel} url={compare.targetUrl} run={runTarget} onRun={() => setRunTarget(true)} onRestore={() => openRestore(targetIdx)} heavy={cmpTargetHeavy} changes={[]} canvasW={0} canvasH={0} overlays={false} kinds={kinds} />
+                                    <CompareColumn tag="Version" label={compare.targetLabel} url={compare.targetUrl} run={runTarget} onRun={() => setRunTarget(true)} onRestore={restoreAllowed ? (() => openRestore(targetIdx)) : undefined} heavy={cmpTargetHeavy} changes={[]} canvasW={0} canvasH={0} overlays={false} kinds={kinds} />
                                 </React.Fragment>
                             ) : (
                                 /* Multi-version view: toolbar, two columns, blend */
@@ -1873,9 +2060,9 @@ export default function WrapperApp() {
                                                 </div>
                                             ) : null}
                                             <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-                                                <CompareColumn tag="Older" label={compare.baseLabel} url={compare.baseUrl} run={runBase} onRun={() => setRunBase(true)} onRestore={() => openRestore(baseIdx)} heavy={cmpBaseHeavy} changes={cmpChanges.baseline.changes} canvasW={cmpChanges.baseline.canvasW} canvasH={cmpChanges.baseline.canvasH} overlays={overlays} kinds={kinds} />
+                                                <CompareColumn tag="Older" label={compare.baseLabel} url={compare.baseUrl} run={runBase} onRun={() => setRunBase(true)} onRestore={restoreAllowed ? (() => openRestore(baseIdx)) : undefined} heavy={cmpBaseHeavy} changes={cmpChanges.baseline.changes} canvasW={cmpChanges.baseline.canvasW} canvasH={cmpChanges.baseline.canvasH} overlays={overlays} kinds={kinds} />
                                                 <div style={{ width: 1, background: PAL.edgeSoft }} />
-                                                <CompareColumn tag="Newer" label={compare.targetLabel} url={compare.targetUrl} run={runTarget} onRun={() => setRunTarget(true)} onRestore={() => openRestore(targetIdx)} heavy={cmpTargetHeavy} changes={cmpChanges.target.changes} canvasW={cmpChanges.target.canvasW} canvasH={cmpChanges.target.canvasH} overlays={overlays} kinds={kinds} />
+                                                <CompareColumn tag="Newer" label={compare.targetLabel} url={compare.targetUrl} run={runTarget} onRun={() => setRunTarget(true)} onRestore={restoreAllowed ? (() => openRestore(targetIdx)) : undefined} heavy={cmpTargetHeavy} changes={cmpChanges.target.changes} canvasW={cmpChanges.target.canvasW} canvasH={cmpChanges.target.canvasH} overlays={overlays} kinds={kinds} />
                                             </div>
                                         </React.Fragment>
                                     </div>
@@ -1952,7 +2139,7 @@ export default function WrapperApp() {
 
 function Modal({ title, onClose, children, zIndex }) {
     return (
-        <div onClick={onClose || undefined} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: zIndex || 1000 }}>
+        <div onClick={onClose || undefined} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: zIndex || MODAL_Z }}>
             <div onClick={(e) => e.stopPropagation()} style={{ width: '95vw', height: '92vh', background: PAL.modalBody, border: `1px solid ${PAL.edge}`, borderRadius: 6, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 12px 48px rgba(0,0,0,0.6)', fontFamily: SANS }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px', background: PAL.panel, borderBottom: `1px solid ${PAL.edgeSoft}`, color: PAL.text, fontFamily: 'ui-sans-serif, system-ui, sans-serif', fontSize: 13, fontWeight: 600 }}>
                     <span>{title}</span>
@@ -2013,9 +2200,15 @@ function CompareColumn({ tag, label, url, run, onRun, onRestore, heavy, changes,
                     </span>
                 ) : null}
                 <span style={{ flex: 1 }} />
-                <HoverBtn base={btnRestoreSmall(true)} hover={{ background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }} title={`Restore this ${tag.toLowerCase()} version`} onClick={onRestore}>
-                    ⟲ Restore
-                </HoverBtn>
+                {/* Dropped entirely when restore is not allowed, the same way
+                    SavedSearchCompare handles it. A column header is too tight
+                    for a dead control, and the Restore pane already explains
+                    why. Callers pass onRestore undefined to switch it off. */}
+                {onRestore ? (
+                    <HoverBtn base={btnRestoreSmall(true)} hover={{ background: PAL.restoreBgHover, borderColor: PAL.restoreBorderHover }} title={`Restore this ${tag.toLowerCase()} version`} onClick={onRestore}>
+                        ⟲ Restore
+                    </HoverBtn>
+                ) : null}
             </div>
             {run ? (
                 <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>

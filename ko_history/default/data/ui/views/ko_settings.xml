@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<view template="ko_history:/templates/settings.html" type="html">
+  <label>Settings</label>
+</view>

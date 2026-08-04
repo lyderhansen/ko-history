@@ -1,7 +1,35 @@
 <nav search_view="search" color="#000000">
-  <view name="wrapper" default="true" />
+  <!--
+    ko_home is the default deliberately. The wrapper is a React page served
+    from a Mako template, and Splunk resolves those when the appserver
+    starts, so before a restart it raises a template lookup error. Opening
+    a freshly installed app onto a stack trace reads as a broken package.
+    ko_home is plain Dashboard Studio, needs no restart, and says so.
+  -->
+  <view name="ko_home" default="true" />
+  <view name="wrapper" />
   <view name="ko_version_ds" />
   <view name="ko_version" />
   <view name="ko_help" />
+  <!--
+    Splunk's built-in listing pages, scoped to this app. `dashboards` and
+    `reports` are system views available to any app, not views this app ships.
+
+    Reports earns its place: the app installs 25 saved searches that all ship
+    disabled, and enabling them is step two of getting any data at all. Until
+    now the only route was Settings, then Searches, reports and alerts, with the
+    app filter set by hand. This puts them one click from the app itself.
+  -->
+  <view name="dashboards" />
+  <view name="reports" />
   <view name="search" />
+  <!--
+    Admin settings: the only route to this page. app.conf deliberately has no
+    setup_view, because that only works with is_configured = false, and the pair
+    redirects every user to setup until someone saves it. Listed for everyone
+    because nav cannot be filtered by role; the page is read-only for anyone who
+    cannot write the app's config, which is also what tells a non-admin why
+    Restore is greyed out.
+  -->
+  <view name="ko_settings" />
 </nav>

@@ -1,38 +1,90 @@
 # Default permissions for the KO History app.
-# Most objects are owned by admin and shared at App level. Read is open to all
-# roles within the app; write is restricted to admin / sc_admin. Exception: the
-# three [visualizations/*] stanzas set `export = system` by design so the custom
-# vizs appear in the viz picker of dashboards in any app, not just ko_history.
+#
+# KO History is an ADMIN TOOL and ships that way: read and write are both
+# restricted to admin and sc_admin, so the app and everything in it are hidden
+# from ordinary users by default.
+#
+# The reasoning is not just caution. The app's three interactive features all
+# need write access a normal role does not have and should not be given:
+# preview and compare write scratch views into this app, restore writes a real
+# object into a target app, and the version history it exposes is an audit
+# surface covering every knowledge object on the instance. A user who could read
+# the app but write nothing would see a UI where almost every control is
+# correctly disabled, which reads as broken rather than as restricted.
+#
+# TO WIDEN ACCESS: grant read on [views] and [nav] to the extra roles. Do NOT
+# grant them write on [views]; see the warning on that stanza. The app degrades
+# honestly for a read-only role: version history, source view and diffs work,
+# and preview, compare and restore explain why they are unavailable rather than
+# failing with a permissions error.
 
 []
-access = read : [ * ], write : [ admin, sc_admin ]
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
 owner = admin
 
 [savedsearches]
 owner = admin
-access = read : [ * ], write : [ admin, sc_admin ]
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
 
 [views]
 owner = admin
-access = read : [ * ], write : [ admin, sc_admin ]
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
 
 [nav]
 owner = admin
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
+
+# App settings (ko_history.conf): which KO types may be restored.
+#
+# Read stays open on purpose, and it is the one deliberate exception. The
+# wrapper has to know whether restore is enabled before it can draw the button,
+# so if an admin later grants a role read on [views], that role needs this too
+# or the wrapper fails closed and blames a permission problem. The content is
+# seven booleans and exposes nothing about the environment.
+#
+# Write stays admin-only, which is also what the settings page keys its
+# read-only mode off: it asks the endpoint whether the caller can write this
+# stanza rather than testing role names.
+[ko_history]
+owner = admin
 access = read : [ * ], write : [ admin, sc_admin ]
 
-# Custom visualization (dashboard_preview) registered inside this app.
-# Exported system-wide so it appears in the viz picker of dashboards in
-# any app — including Dashboard Studio dashboards outside ko_history.
-# (The viz still writes its preview slots into the ko_history app only.)
+# The bundled custom visualizations.
+#
+# source_viewer and ko_viewer export system-wide on purpose: they RENDER and
+# never write, source_viewer in particular is general-purpose (any field holding
+# JSON or XML, not only KO source), and restricting their read would break an
+# existing dashboard in another app with no error pointing back here.
+#
+# **Do NOT grant [views] write to additional roles.** Any role with [views]
+# write in this app gains a view create and overwrite primitive, gated only by a
+# client-side approval prompt, which is convenience and not security. If
+# non-admins need preview or restore, add a constrained server-side endpoint
+# that enforces per-user limits instead of widening this.
 [visualizations]
 owner = admin
 access = read : [ * ], write : [ admin, sc_admin ]
 export = system
 
+# dashboard_preview is deliberately NOT exported system-wide, unlike the other
+# two. It is the only bundled viz that WRITES: it POSTs dashboard source into
+# a view in this app and then iframes it, and the target slot name is an option
+# set by whoever authors the panel.
+#
+# Exported system-wide that is a confused-deputy vector. Anyone able to author a
+# dashboard in any app could point this viz at an arbitrary view name in
+# ko_history with arbitrary XML; the write then runs with the PERMISSIONS OF
+# WHOEVER OPENS the dashboard, so an admin viewing someone else's dashboard
+# could silently overwrite a real KO History view, gated only by an approval
+# prompt naming a slot that is easy to click past.
+#
+# App-scoped, the vector is gone: the viz can only be placed in dashboards
+# inside ko_history, which is admin-only. ko_version.xml, its one consumer,
+# is unaffected.
 [visualizations/dashboard_preview]
 owner = admin
-access = read : [ * ], write : [ admin, sc_admin ]
-export = system
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
+export = none
 
 [visualizations/source_viewer]
 owner = admin
