@@ -16,7 +16,33 @@ import { runJob } from './searchJob';
 // Slots and searches always target THIS app. Never user-configurable.
 export const PREVIEW_APP = 'ko_history';
 // Backup index used by ko_version.xml (note: it's "ko_history", not "ko_backup").
+// The index name the app SHIPS with. This is the default and the placeholder,
+// not the live value: since 1.3.0 the live name lives in the ko_history_index
+// search macro, and every search resolves it there rather than here.
+//
+// The wrapper gets that for free. Its searches are dispatched at
+// /servicesNS/nobody/ko_history/search/jobs (see oneshot), which is the app
+// namespace the macro is defined in, so `index=`ko_history_index`` resolves
+// server-side with no runtime lookup on our part.
 export const KO_INDEX = 'ko_history';
+
+// The macro that holds the live index name.
+export const INDEX_MACRO = 'ko_history_index';
+const MACRO_COLLECTION = '/servicesNS/nobody/' + PREVIEW_APP + '/configs/conf-macros';
+const MACRO_PATH = MACRO_COLLECTION + '/' + INDEX_MACRO;
+
+// Splunk index names: lowercase letters, digits, underscore and hyphen; cannot
+// begin with an underscore (reserved for internal indexes) and cannot be empty.
+// Validated here as well as in the UI so a bad value cannot reach splunkd
+// through any caller.
+export function validateIndexName(name) {
+    const s = String(name == null ? '' : name).trim();
+    if (!s) return 'Enter an index name.';
+    if (s.length > 255) return 'Index names are limited to 255 characters.';
+    if (s.charAt(0) === '_') return 'Index names cannot start with an underscore, which Splunk reserves for internal indexes.';
+    if (!/^[a-z0-9_-]+$/.test(s)) return 'Use lowercase letters, digits, underscore and hyphen only.';
+    return '';
+}
 // Source discriminators the dashboard's koType token expects.
 export const VIEW_SOURCES = ['ko_views_xml_backup', 'ko_views_delete_audit', 'ko_all_delete_audit'];
 // Saved-search (report/alert) sources — the reports half of the koType dropdown.
@@ -682,5 +708,96 @@ export function writeRestoreSettings(enabled) {
                     canWrite: true,
                     confirmed: false,
                 }));
+        });
+}
+
+// ── index name (the ko_history_index macro) ─────────────────────────────────
+//
+// Read and write the search macro that every search in the app resolves the
+// index name from. Same shape as readRestoreSettings/writeRestoreSettings,
+// including the timeout and the fail-closed behaviour, because the failure
+// modes are identical: a refused read must not look like a value.
+//
+// SCOPE, DELIBERATELY LIMITED: this changes where the app READS. It does NOT
+// repoint the capture searches, whose target is action.summary_index._name, a
+// saved-search setting that cannot reference a macro. Repointing those is the
+// admin's job and is documented in DEPLOY.md and on the settings page itself.
+// Doing half of it silently would be worse than not offering it, which is why
+// the UI states the consequence rather than burying it in a tooltip.
+
+export function readIndexName() {
+    const url = rawUrl(MACRO_PATH) + '?output_mode=json';
+    return fetchSettings(url, { method: 'GET' })
+        .then((resp) => {
+            if (resp.status === 404) {
+                // Macro absent: the app is running on whatever the searches
+                // hardcode, which after 1.3.0 means they resolve nothing. Report
+                // it as missing rather than inventing the default, so the page
+                // can say so instead of showing a value that is not in effect.
+                return canCreateIn(PREVIEW_APP, 'configs/conf-macros')
+                    .then((canWrite) => ({ found: false, name: '', canWrite }));
+            }
+            if (!resp.ok) {
+                return resp.text().then((tx) => {
+                    const err = new Error('index macro read HTTP ' + resp.status + ' ' + tx.slice(0, 200));
+                    err.code = resp.status === 403 ? 'FORBIDDEN' : 'READ_FAILED';
+                    return Promise.reject(err);
+                });
+            }
+            return resp.text().then((tx) => {
+                let body;
+                try {
+                    body = JSON.parse(tx);
+                } catch (e) {
+                    const err = new Error('index macro read returned a non-JSON body');
+                    err.code = 'READ_FAILED';
+                    return Promise.reject(err);
+                }
+                const entry = body && body.entry && body.entry[0];
+                const content = (entry && entry.content) || {};
+                const acl = (entry && entry.acl) || {};
+                return {
+                    found: true,
+                    name: String(content.definition == null ? '' : content.definition).trim(),
+                    // The stanza's own ACL, so no role name is hardcoded here.
+                    canWrite: !!acl.can_write,
+                };
+            });
+        });
+}
+
+export function writeIndexName(name) {
+    const problem = validateIndexName(name);
+    if (problem) return Promise.reject(Object.assign(new Error(problem), { code: 'INVALID' }));
+    const clean = String(name).trim();
+    const url = rawUrl(MACRO_PATH) + '?output_mode=json';
+    return fetchSettings(url, { method: 'POST', body: encodeForm({ definition: clean }) })
+        .then((resp) => {
+            if (resp.status === 404) {
+                // No stanza yet: create it on the collection instead of updating.
+                const createUrl = rawUrl(MACRO_COLLECTION) + '?output_mode=json';
+                return fetchSettings(createUrl, {
+                    method: 'POST',
+                    body: encodeForm({ name: INDEX_MACRO, definition: clean, iseval: '0' }),
+                });
+            }
+            return resp;
+        })
+        .then((resp) => {
+            if (!resp.ok) {
+                return resp.text().then((tx) => {
+                    const err = new Error('index macro write HTTP ' + resp.status + ' ' + tx.slice(0, 200));
+                    err.code = resp.status === 403 ? 'FORBIDDEN' : 'WRITE_FAILED';
+                    return Promise.reject(err);
+                });
+            }
+            // Re-read so the caller renders what landed, not what it hoped for.
+            // A write that succeeds while the confirming read fails resolves
+            // with confirmed:false rather than rejecting: the value IS on disk,
+            // and reporting that as a failure tells the admin the opposite of
+            // the truth.
+            return readIndexName()
+                .then((res) => Object.assign({ confirmed: true }, res))
+                .catch(() => ({ found: true, name: clean, canWrite: true, confirmed: false }));
         });
 }

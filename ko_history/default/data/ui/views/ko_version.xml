@@ -259,7 +259,7 @@
       <title>Hidden: drilldown source (raw XML extraction for diff panel)</title>
       <table>
         <search id="baseSearchDataView">
-          <query>index="ko_history" source IN ($koType$) NOT source="ko_usage" title="$drilldownTitle$"
+          <query>index=`ko_history_index` source IN ($koType$) NOT source="ko_usage" title="$drilldownTitle$"
 ```WHAT: unwraps the stored KO source for the textual diff panel. The sed steps strip the surrounding data="..." envelope and un-escape backslashes, leaving raw dashboard XML in _raw. NOTE: this mangled value is for the DIFF only. The preview visualization needs the untouched data field, which is why the preview panel uses its own search rather than chaining off this one.```
 | rex mode=sed "s/^.*?data=\"//"
 | rex mode=sed "s/\", type=views[\s\S]*//"
@@ -276,7 +276,7 @@
       <title>Hidden: drilldown source (clean data field for preview viz)</title>
       <table>
         <search id="baseSearchPreview">
-          <query>index="ko_history" source IN ($koType$) NOT source="ko_usage" title="$drilldownTitle$"
+          <query>index=`ko_history_index` source IN ($koType$) NOT source="ko_usage" title="$drilldownTitle$"
 ```NO SECOND UNESCAPE: `data` here is the field Splunk EXTRACTED from the summary event, and extraction already resolved the \" escaping that summary indexing added. Unescaping it again strips backslashes the source itself owns. Simple XML barely uses backslashes so the second pass looked harmless for years, but a Dashboard Studio definition is JSON: \" \\ \n \f inside its query strings are content, and removing those backslashes produces invalid JSON that the views handler rejects with a parse error (Unexpected character). The consumers that DO unescape (baseSearchDataView, ko_version_ds ds_dataview, the wrapper) all work from _raw, where the escaping is still present. This one works from the extracted field, so it must not.```
 | table _time data appName
 | sort - _time</query>
@@ -290,7 +290,7 @@
       <title>Hidden BaseSearch</title>
       <table>
         <search id="baseSearch">
-          <query>index="ko_history" source IN ($koType$) NOT source="ko_usage"
+          <query>index=`ko_history_index` source IN ($koType$) NOT source="ko_usage"
 ```WHAT: the hidden base every panel on this dashboard chains off. It unions the periodic backup snapshots with the DELETE/MOVE audit records and collapses them to one row per knowledge object, carrying that object's full version history. Usage events are excluded here and joined in separately where needed.```
 ```TYPE: backup events carry a type field; audit events do not, so the type is derived from the audit source name. Both streams have to agree on type or the koType filter would drop every audit row.```
 | eval type=coalesce(type, case(match(source,"views_delete_audit"),"views",match(source,"reports_and_alerts_delete_audit"),"savedsearch",match(source,"macros_delete_audit"),"macro",match(source,"eventtypes_delete_audit"),"eventtype",match(source,"fieldextractions_delete_audit"),"fieldextraction",match(source,"lookups_delete_audit"),"lookup",match(source,"tags_delete_audit"),"tag"))

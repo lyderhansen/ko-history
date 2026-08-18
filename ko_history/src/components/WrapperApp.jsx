@@ -1,6 +1,6 @@
 import React from 'react';
 import { SplunkThemeProvider } from '@splunk/themes';
-import { oneshot, upsertView, restoreView, upsertSavedSearch, viewExists, savedSearchExists, savedSearchUrl, listApps, viewUrl, previewUrl, splQuote, KO_INDEX, VIEW_SOURCES, REPORT_SOURCES, sourcesForClass, PREVIEW_APP, SLOT_BASELINE, SLOT_TARGET, restoreKO, koManagerUrl, readRestoreSettings, canWritePreviewSlots, canCreateIn } from '../util/splunkRest';
+import { oneshot, upsertView, restoreView, upsertSavedSearch, viewExists, savedSearchExists, savedSearchUrl, listApps, viewUrl, previewUrl, splQuote, VIEW_SOURCES, REPORT_SOURCES, sourcesForClass, PREVIEW_APP, SLOT_BASELINE, SLOT_TARGET, restoreKO, koManagerUrl, readRestoreSettings, canWritePreviewSlots, canCreateIn } from '../util/splunkRest';
 import { isRestoreAllowed, restoreBlockReason } from '../util/restoreSettings';
 import { parseMarker } from '../util/markerParse';
 import { versionSearchTerms } from '../util/versionSearchTerms';
@@ -174,7 +174,7 @@ const SS_FIELDS = (
 // and the app filter tolerates audit rows so deletions still appear in history.
 function versionsSplSavedSearch(title, appName) {
     return (
-        `index=${splQuote(KO_INDEX)} source IN (${REPORT_SOURCE_LIST}) ` + versionSearchTerms(title) + ' ' +
+        `index=\`ko_history_index\` source IN (${REPORT_SOURCE_LIST}) ` + versionSearchTerms(title) + ' ' +
         `| eval title=coalesce(title,file), appName=coalesce(appName,app) ` +
         `| search title=${splQuote(title)} ` +
         `| where appName=${splQuote(appName)} OR isnull(appName) ` +
@@ -206,7 +206,7 @@ function extractSavedSearch(row) {
 // scopes to the class's sources (falls back to "*", title-scoped).
 function versionsSplGeneric(title, appName, sourceList) {
     return (
-        `index=${splQuote(KO_INDEX)} source IN (${sourceList}) NOT source="ko_usage" ` + versionSearchTerms(title) + ' ' +
+        `index=\`ko_history_index\` source IN (${sourceList}) NOT source="ko_usage" ` + versionSearchTerms(title) + ' ' +
         `| eval title=coalesce(title,file), appName=coalesce(appName,app) ` +
         `| search title=${splQuote(title)} ` +
         `| where appName=${splQuote(appName)} OR isnull(appName) ` +
@@ -248,7 +248,7 @@ function versionsSpl(title, appName) {
     // Fetch _raw and extract the XML in JS (the auto-extracted `data` field
     // truncates at an escaped quote for some dashboards). _raw is complete.
     return (
-        `index=${splQuote(KO_INDEX)} source IN (${SOURCE_LIST}) ` + versionSearchTerms(title) + ' ' +
+        `index=\`ko_history_index\` source IN (${SOURCE_LIST}) ` + versionSearchTerms(title) + ' ' +
         `| eval title=coalesce(title,file,dashboard), appName=coalesce(appName,app) ` +
         `| search title=${splQuote(title)} appName=${splQuote(appName)} ` +
         // derive method like the dashboard (backup events carry "updated") so the

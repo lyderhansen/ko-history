@@ -34,6 +34,34 @@ fi
 echo "=== Building $APP_NAME v$VERSION ==="
 echo ""
 
+# --- E9: a build that does not build must not look like success -------------
+# `npm run build` runs `webpack --mode production`. When webpack is not
+# resolvable -- a partially materialised node_modules, a missing .bin, a cloud
+# sync folder that has not hydrated -- the shell prints
+# "webpack: command not found" and npm STILL EXITS 0. set -euo pipefail cannot
+# see it. The build then packages whatever bundle happens to be on disk and
+# reports success, which is how a release ships source changes that never made
+# it into the compiled output. That has happened here at least once.
+#
+# NOT mtime. The first version of this guard compared the bundle's mtime across
+# the build and failed the moment it met a no-op rebuild: webpack reports
+# "[compared for emit]" and deliberately does NOT rewrite a file whose contents
+# are unchanged, so an unchanged mtime is the normal result of building twice
+# with no source edits, not evidence of a broken toolchain.
+#
+# What actually distinguishes "webpack ran" from "webpack was missing" is
+# webpack's own success line, so assert on that.
+assert_compiled() {
+    local label="$1" out="$2"
+    if ! printf '%s' "$out" | grep -q "compiled successfully"; then
+        echo "FATAL: [$label] webpack never reported success." >&2
+        echo "       npm exits 0 when webpack is missing, so this is the only" >&2
+        echo "       reliable signal. Check node_modules/.bin/webpack exists." >&2
+        exit 1
+    fi
+}
+
+
 # 1) Build every REGISTERED custom-viz bundle under appserver/static/visualizations/*.
 #    Registration = a stanza in default/visualizations.conf. An unregistered
 #    directory is build residue of a removed viz (git no longer tracks it, but
@@ -66,7 +94,9 @@ for vd in "$VIZ_BASE"/*/; do
         (cd "$vd" && npm install --silent)
     fi
     echo "[viz: $VIZ_NAME] Building webpack bundle..."
-    (cd "$vd" && npm run build --silent)
+    _viz_out=$( (cd "$vd" && npm run build --silent) 2>&1 ) || { echo "$_viz_out"; exit 1; }
+    echo "$_viz_out"
+    assert_compiled "viz: $VIZ_NAME" "$_viz_out"
 done
 
 # 2) Build the React wrapper app page (src/ -> appserver/static/pages/wrapper.js).
@@ -79,7 +109,15 @@ if [ -f "$APP_DIR/package.json" ]; then
         (cd "$APP_DIR" && NODE_OPTIONS= npm install --silent)
     fi
     echo "[page: wrapper] Building webpack bundle..."
-    (cd "$APP_DIR" && NODE_OPTIONS= npm run build --silent)
+    _pages_out=$( (cd "$APP_DIR" && NODE_OPTIONS= npm run build --silent) 2>&1 ) || { echo "$_pages_out"; exit 1; }
+    echo "$_pages_out"
+    assert_compiled "pages: wrapper + settings" "$_pages_out"
+    # Both entry chunks must exist: a webpack entry that silently stopped being
+    # emitted would otherwise ship an app page that 404s on its bundle.
+    for _p in wrapper settings; do
+        [ -s "$APP_DIR/appserver/static/pages/$_p.js" ] || {
+            echo "FATAL: [pages] $_p.js is missing or empty after a successful build." >&2; exit 1; }
+    done
 fi
 
 echo ""
@@ -140,7 +178,17 @@ for vd in "$VIZ_BASE"/*/; do
 done
 
 if [[ "$(uname)" == "Darwin" ]]; then
-    xattr -rc "$APP_DIR" 2>/dev/null || true
+    # PRUNE node_modules. `xattr -rc "$APP_DIR"` walks every file under the app,
+    # and node_modules is tens of thousands of them across ~100 packages. On a
+    # cloud-sync-backed folder that does not finish in any reasonable time: it
+    # was observed still running after six minutes, with the build sitting at
+    # "Packaging..." and no tar process yet started, which reads as a hang.
+    #
+    # The work was pointless as well as slow. node_modules is excluded from the
+    # tarball a few lines below, so its extended attributes were being cleared
+    # on files that are never packaged. Only what actually ships needs cleaning.
+    find "$APP_DIR" -name node_modules -type d -prune -o -print0 2>/dev/null \
+        | xargs -0 xattr -c 2>/dev/null || true
     export COPYFILE_DISABLE=1
     TAR_FLAGS+=(--disable-copyfile --no-xattrs --no-mac-metadata)
 fi

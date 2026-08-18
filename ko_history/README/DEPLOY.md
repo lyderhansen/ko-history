@@ -7,7 +7,9 @@ Deployment is three steps: **create the index → install the app → enable the
 
 ## 1. Create the `ko_history` index
 
-The index name is fixed at `ko_history` in this release. Create it before installing.
+The app defaults to an index named `ko_history`. Create it before installing. If you need
+a different name, or you already have KO History data under one, see *Using a different
+index name* at the end of this file: the name lives in a single search macro.
 
 - **Splunk Cloud:** create an Events index named `ko_history` via **Settings → Indexes**
   (or ACS / the Cloud console). Retention: choose a long frozen period to keep version
@@ -141,9 +143,67 @@ extractions, lookups, tags) are versioned and viewable now, and appear on the se
 as greyed-out placeholders: their restore is written but has not finished testing, so the
 app ignores those conf keys even if you set them by hand.
 
-## Renaming the index (advanced)
+## Using a different index name
 
-The index name `ko_history` is referenced in several layers (saved-search SPL and summary
-targets, dashboard searches, and the app page bundle). Renaming it is not a single-setting
-change. See the in-app **KO History: how the pieces fit together** help page for
-the full list of change points.
+The index name lives in one search macro, **`ko_history_index`**, which expands to
+the bare name (`ko_history` by default). Every search in the app reads it as
+``index=`ko_history_index` ``, so changing the macro repoints every dashboard and
+lookup builder at once.
+
+Two reasons to change it: you already have KO History data under another name, or
+your naming policy requires one.
+
+**The macro governs reads, not writes.** Where the app writes is
+`action.summary_index._name` on each capture search, a saved-search setting that
+cannot use a macro. Changing the macro alone leaves the dashboards looking at the
+new index while capture keeps filling the old one, which presents as a working
+install with an empty table.
+
+So change it in one of these two ways:
+
+- **Settings page (recommended).** It writes the macro and repoints the capture
+  searches together.
+- **By hand.** Edit the macro on *Settings > Advanced search > Search macros*,
+  then edit `action.summary_index._name` on every `ko_*_backup`, `ko_*_backfill`,
+  `ko_*_catchup` and `ko_all_delete_audit` search to match.
+
+**Retention still matters.** Whatever index you point at needs a long frozen
+period. The bundled `indexes.conf` sets 20 years on `ko_history` for a reason: the
+app stamps each event at the knowledge object's own `updated` time, so a snapshot
+of an object last edited years ago is written with that old timestamp. Splunk's
+default (~6 years) will freeze, meaning delete, anything older. This applies to
+every Splunk Cloud install too, because Cloud manages indexes through ACS and
+ignores an app-shipped `indexes.conf` entirely: check the retention on the index
+you created there.
+
+### Changing it from the Settings page
+
+**Settings** has an **Index** section that writes the `ko_history_index` macro for you,
+which is the read side. It deliberately does **not** touch the capture searches, because
+`action.summary_index._name` cannot reference a macro and repointing 23 searches silently
+on someone's behalf is not a thing a settings page should do without being asked.
+
+So the two halves are split by design:
+
+| Half | What it is | Who changes it |
+|---|---|---|
+| Read | `ko_history_index` macro | Settings page, or the macro editor |
+| Write | `action.summary_index._name` on each capture search | You |
+
+After changing the index name, edit `action.summary_index._name` on every `ko_*_backup`,
+`ko_*_backfill`, `ko_*_catchup`, `ko_all_delete_audit` and `ko_usage_collector` search to
+match. Until you do, capture keeps writing to the old index while the dashboards read the
+new one, which looks like an app that suddenly lost all its data.
+
+To check the two halves agree:
+
+```
+| rest /servicesNS/-/ko_history/saved/searches splunk_server=local
+| search title=ko_* action.summary_index._name=*
+| stats values(action.summary_index._name) as writes_to by title
+| append [| rest /servicesNS/-/ko_history/admin/macros splunk_server=local
+          | search title=ko_history_index | eval title="(macro) reads from",
+            writes_to=definition | fields title writes_to]
+```
+
+Every row should name the same index.

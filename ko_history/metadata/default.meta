@@ -95,3 +95,21 @@ export = system
 owner = admin
 access = read : [ * ], write : [ admin, sc_admin ]
 export = system
+
+# Search macros. World-READABLE, admin-writable, deliberately.
+#
+# ko_history_index holds nothing sensitive: it is the name of an index, and a
+# role that cannot read that index learns nothing from knowing its name.
+#
+# It has to be readable by anyone who runs a search in this app, or the search
+# fails with "macro not found" rather than returning no data. That includes the
+# widen-access path documented at the top of this file: granting a role read on
+# [views] and [nav] is supposed to give them working version history, and every
+# one of those dashboards resolves this macro. Leaving it on the admin-only
+# default would make that documented instruction produce a broken app.
+#
+# Not exported to system: every consumer lives in this app, so app scope is
+# enough and a global macro name is one more thing to collide with.
+[macros]
+owner = admin
+access = read : [ * ], write : [ admin, sc_admin ]

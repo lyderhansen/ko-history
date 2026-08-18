@@ -10,7 +10,7 @@
     "viz_md_overview": {
       "type": "splunk.markdown",
       "options": {
-        "markdown": "# KO History: how the pieces fit together\n\n**KO History** captures and versions Splunk knowledge objects into a summary\nindex so you can audit changes and recover content after accidental deletes,\noverwrites, or moves. Seven types are covered: dashboards, reports and alerts,\nsearch macros, event types, field extractions, lookup definitions, and tags.\n\nThis page is a map of the app's moving parts and, importantly, **what depends on\nwhat**. Read it before renaming a view, moving the index, or changing the\ndashboard's selection markers.\n\n| Piece | Type | Role |\n|---|---|---|\n| `ko_home` | Dashboard Studio | The landing page and app default. Pure Studio on purpose: it resolves without a restart, unlike the Mako-templated React pages. |\n| `wrapper` | React app page (Mako) | The main page. Embeds `ko_version_ds`, drives preview / compare / **restore**. |\n| `ko_version_ds` | Dashboard Studio | The actual data UI: filters, KPIs, KO table, version list, textual diff, **source viewer**. |\n| `ko_version` | Simple XML | Legacy/alternate dashboard, labelled **KO Version (SXML)** in the nav to tell it apart from the Studio one; SXML live-render preview via `dashboard_preview`. |\n| `ko_settings` | React app page | Admin settings. Enables restore per object type. |\n| `index=ko_history` | summary index | Append-only version log. Everything reads from here. |\n| saved searches | 25 stanzas | Populate the index (7 type backups + 7 daily catch-ups + combined delete-audit + 2 lookup builders + usage collector + 7 one-time backfills). |\n| custom viz `source_viewer` | bundled viz | Foldable, syntax-highlighted KO source. Used in `ko_version_ds` **and** (its logic) in the wrapper. |\n| custom viz `dashboard_preview` | bundled viz | Live dashboard render for Simple XML host (write-then-iframe). |\n| custom viz `ko_viewer` | bundled viz | Splunk-native record card for one KO version (reports/alerts get a bespoke profile). |\n| `ko_help` | Dashboard Studio | This page. |\n"
+        "markdown": "# KO History: how the pieces fit together\n\n**KO History** captures and versions Splunk knowledge objects into a summary\nindex so you can audit changes and recover content after accidental deletes,\noverwrites, or moves. Seven types are covered: dashboards, reports and alerts,\nsearch macros, event types, field extractions, lookup definitions, and tags.\n\nThis page is a map of the app's moving parts and, importantly, **what depends on\nwhat**. Read it before renaming a view, moving the index, or changing the\ndashboard's selection markers.\n\n| Piece | Type | Role |\n|---|---|---|\n| `ko_home` | Dashboard Studio | The landing page and app default. Pure Studio on purpose: it resolves without a restart, unlike the Mako-templated React pages. |\n| `wrapper` | React app page (Mako) | The main page. Embeds `ko_version_ds`, drives preview / compare / **restore**. |\n| `ko_version_ds` | Dashboard Studio | The actual data UI: filters, KPIs, KO table, version list, textual diff, **source viewer**. |\n| `ko_version` | Simple XML | Legacy/alternate dashboard, labelled **KO Version (SXML)** in the nav to tell it apart from the Studio one; SXML live-render preview via `dashboard_preview`. |\n| `ko_settings` | React app page | Admin settings. Enables restore per object type. |\n| `index=ko_history` | summary index | Append-only version log. Everything reads from here, via the `ko_history_index` macro. |\n| saved searches | 25 stanzas | Populate the index (7 type backups + 7 daily catch-ups + combined delete-audit + 2 lookup builders + usage collector + 7 one-time backfills). |\n| custom viz `source_viewer` | bundled viz | Foldable, syntax-highlighted KO source. Used in `ko_version_ds` **and** (its logic) in the wrapper. |\n| custom viz `dashboard_preview` | bundled viz | Live dashboard render for Simple XML host (write-then-iframe). |\n| custom viz `ko_viewer` | bundled viz | Splunk-native record card for one KO version (reports/alerts get a bespoke profile). |\n| `ko_help` | Dashboard Studio | This page. |\n"
       }
     },
     "viz_md_capture": {
@@ -36,7 +36,7 @@
     "viz_md_dependency": {
       "type": "splunk.markdown",
       "options": {
-        "markdown": "## Dependency map\n\n- **The index is the contract.** All three UIs read `index=ko_history`. If you\n  rename or relocate it, update `KO_INDEX` in `src/util/splunkRest.js` *and* the\n  `index=\"ko_history\"` literals in the dashboard generators.\n- **Saved-search `source` values are the discriminator.** The `koType` dropdown\n  uses `ko_views_xml_backup`, `ko_reports_and_alerts_backup` (the per-type backup\n  searches) and the combined `ko_all_delete_audit` (which replaced the former\n  per-type `ko_views_delete_audit` / `ko_reports_and_alerts_delete_audit` sources).\n  Renaming a saved search means updating every `source IN (\u2026)` clause.\n"
+        "markdown": "## Dependency map\n\n- **The index name lives in one macro.** Every search in the app reads it as\n  ``index=`ko_history_index` ``, and the macro expands to the bare index name\n  (`ko_history` by default). Change the macro and every dashboard and lookup\n  builder follows. It is the supported way to point the app at an index you\n  already have, or to run under a name your naming policy requires.\n- **Changing it needs the write side too.** The macro governs where the app\n  READS. Where it WRITES is `action.summary_index._name` on each capture search,\n  which is a saved-search setting and cannot use a macro. Change the macro alone\n  and the dashboards look at the new index while capture keeps filling the old\n  one: a working install showing an empty table. Use **Settings**, which updates\n  both together. Editing the macro directly on *Settings > Advanced search >\n  Search macros* is supported, but then you must repoint the capture searches\n  yourself.\n- **Saved-search `source` values are the discriminator.** The `koType` dropdown\n  uses `ko_views_xml_backup`, `ko_reports_and_alerts_backup` (the per-type backup\n  searches) and the combined `ko_all_delete_audit` (which replaced the former\n  per-type `ko_views_delete_audit` / `ko_reports_and_alerts_delete_audit` sources).\n  Renaming a saved search means updating every `source IN (\u2026)` clause.\n"
       }
     },
     "viz_md_contract": {
@@ -111,7 +111,7 @@
     "viz_md_troubleshooting": {
       "type": "splunk.markdown",
       "options": {
-        "markdown": "## Troubleshooting\n\n**The KO table is empty.** The index exists but nothing has been captured yet.\nConfirm the searches are enabled and that at least one cron cycle has passed.\n`index=ko_history | stats count by source` tells you immediately whether events\nare arriving and from which search.\n\n**A dashboard I know exists has no versions.** The backups only capture objects\nthat change. Until someone edits it, or you run the matching backfill, there is\nnothing to show.\n\n**Versions load slowly, or time out.** The wrapper bounds a version search at 30\nseconds and then offers Retry. A consistently slow search usually means a very\nlarge index with a wide time range; the searches deliberately run over all time\nbecause backfilled events can carry old timestamps.\n\n**Opening KO History or Settings returns a server error.** Almost always a\nmissing restart, and it is the single most common thing to go wrong on a fresh\ninstall. The symptom is a 5xx error page, usually a 500, sometimes with a stack\ntrace ending in\n\n```\nTopLevelLookupException: failed to locate the template for uri\n'ko_history:/templates/wrapper.html'\n```\n\nBoth pages are React pages served from a Mako template plus a static bundle, and\nSplunk resolves both when the appserver **starts**, so before a restart they\ncannot be found. Nothing prompts you to restart, on Splunk Cloud or on\nEnterprise. Restart Splunk and open the page again. Every other page in the app,\nincluding this one, works without the restart, so a working nav and a broken\nmain page is exactly the expected shape of this problem.\n\n**The wrapper page looks stale after an upgrade.** Same cause, different symptom:\nthe bundle Splunk resolved at startup is the previous version's. Copying files or\nreloading the app is not enough, and a stale bundle is more confusing than a\nmissing one because the page loads and merely behaves oddly. A **full\n`splunk restart`** is required after every upgrade, not just the first install.\n\n**Preview boxes do not appear.** The in-iframe highlighter tries a ladder of\nselectors and may need tuning on an unusual Splunk build. The structural change\nlist and the source diff never depend on the iframe DOM, so they still work.\n"
+        "markdown": "## Troubleshooting\n\n**The KO table is empty.** The index exists but nothing has been captured yet.\nConfirm the searches are enabled and that at least one cron cycle has passed.\n``index=`ko_history_index` | stats count by source`` tells you whether events\nare arriving and from which search.\n\n**A dashboard I know exists has no versions.** The backups only capture objects\nthat change. Until someone edits it, or you run the matching backfill, there is\nnothing to show.\n\n**Versions load slowly, or time out.** The wrapper bounds a version search at 30\nseconds and then offers Retry. A consistently slow search usually means a very\nlarge index with a wide time range; the searches deliberately run over all time\nbecause backfilled events can carry old timestamps.\n\n**Opening KO History or Settings returns a server error.** Almost always a\nmissing restart, and it is the single most common thing to go wrong on a fresh\ninstall. The symptom is a 5xx error page, usually a 500, sometimes with a stack\ntrace ending in\n\n```\nTopLevelLookupException: failed to locate the template for uri\n'ko_history:/templates/wrapper.html'\n```\n\nBoth pages are React pages served from a Mako template plus a static bundle, and\nSplunk resolves both when the appserver **starts**, so before a restart they\ncannot be found. Nothing prompts you to restart, on Splunk Cloud or on\nEnterprise. Restart Splunk and open the page again. Every other page in the app,\nincluding this one, works without the restart, so a working nav and a broken\nmain page is exactly the expected shape of this problem.\n\n**The wrapper page looks stale after an upgrade.** Same cause, different symptom:\nthe bundle Splunk resolved at startup is the previous version's. Copying files or\nreloading the app is not enough, and a stale bundle is more confusing than a\nmissing one because the page loads and merely behaves oddly. A **full\n`splunk restart`** is required after every upgrade, not just the first install.\n\n**Preview boxes do not appear.** The in-iframe highlighter tries a ladder of\nselectors and may need tuning on an unusual Splunk build. The structural change\nlist and the source diff never depend on the iframe DOM, so they still work.\n"
       }
     },
     "viz_md_install": {
@@ -197,7 +197,7 @@
         "type": "absolute",
         "options": {
           "width": 1280,
-          "height": 4333
+          "height": 4459
         },
         "structure": [
           {
@@ -217,7 +217,7 @@
               "x": 0,
               "y": 450,
               "w": 1280,
-              "h": 225
+              "h": 351
             }
           },
           {
@@ -225,7 +225,7 @@
             "type": "block",
             "position": {
               "x": 0,
-              "y": 695,
+              "y": 821,
               "w": 1280,
               "h": 1065
             }
@@ -235,7 +235,7 @@
             "type": "block",
             "position": {
               "x": 0,
-              "y": 1780,
+              "y": 1906,
               "w": 1280,
               "h": 470
             }
@@ -245,7 +245,7 @@
             "type": "block",
             "position": {
               "x": 0,
-              "y": 2270,
+              "y": 2396,
               "w": 1280,
               "h": 1023
             }
@@ -255,7 +255,7 @@
             "type": "block",
             "position": {
               "x": 0,
-              "y": 3313,
+              "y": 3439,
               "w": 1280,
               "h": 370
             }
@@ -265,7 +265,7 @@
             "type": "block",
             "position": {
               "x": 0,
-              "y": 3703,
+              "y": 3829,
               "w": 1280,
               "h": 330
             }
@@ -275,7 +275,7 @@
             "type": "block",
             "position": {
               "x": 0,
-              "y": 4053,
+              "y": 4179,
               "w": 1280,
               "h": 240
             }

@@ -17,7 +17,8 @@ import React from 'react';
 
 import { ALL_CLASSES, isAvailableClass } from '../util/koClass';
 import { serializeSettings } from '../util/restoreSettings';
-import { readRestoreSettings, writeRestoreSettings } from '../util/splunkRest';
+import { readRestoreSettings, writeRestoreSettings, readIndexName, writeIndexName,
+    validateIndexName, KO_INDEX, INDEX_MACRO } from '../util/splunkRest';
 import { HoverBtn, Notice, kitStyles, PAL } from './PanelKit';
 
 const S = kitStyles();
@@ -81,6 +82,165 @@ function Section({ title, children }) {
             </h2>
             {children}
         </section>
+    );
+}
+
+// The index name, held in the ko_history_index search macro.
+//
+// Deliberately its OWN component with its own load/save state. The restore
+// settings and the index name are read from different endpoints and either can
+// fail on its own; sharing one state machine would mean a refused macro read
+// blanking the restore controls, which have nothing to do with it.
+//
+// SCOPE IS STATED, NOT HIDDEN. This writes the macro, which is where the app
+// READS. It does not repoint the capture searches, whose target is
+// action.summary_index._name -- a saved-search setting that cannot reference a
+// macro. That is the admin's job. The consequence of doing one without the
+// other is a working install showing an empty table, which is unpleasant to
+// diagnose, so the warning sits in the section body where it cannot be missed
+// rather than in a tooltip.
+function IndexSection() {
+    const [state, setState] = React.useState('loading');   // loading | ready | error
+    const [err, setErr] = React.useState('');
+    const [saved, setSaved] = React.useState('');
+    const [draft, setDraft] = React.useState('');
+    const [canWrite, setCanWrite] = React.useState(false);
+    const [found, setFound] = React.useState(true);
+    const [busy, setBusy] = React.useState(false);
+    const [saveError, setSaveError] = React.useState('');
+    const [justSaved, setJustSaved] = React.useState(false);
+    const [unconfirmed, setUnconfirmed] = React.useState(false);
+
+    const apply = React.useCallback((res) => {
+        setSaved(res.name || '');
+        setDraft(res.name || '');
+        setCanWrite(!!res.canWrite);
+        setFound(!!res.found);
+        setState('ready');
+    }, []);
+
+    React.useEffect(() => {
+        let live = true;
+        readIndexName()
+            .then((res) => { if (live) apply(res); })
+            .catch((e) => {
+                if (!live) return;
+                const code = e && e.code;
+                setErr(code === 'FORBIDDEN'
+                    ? 'Your account is not allowed to read this app\u2019s search macros, so the index name cannot be shown here.'
+                    : code === 'TIMEOUT'
+                        ? 'The index name did not load within 30 seconds. Reload to try again.'
+                        : 'The index name could not be read from the ko_history_index macro.');
+                setState('error');
+            });
+        return () => { live = false; };
+    }, [apply]);
+
+    const problem = validateIndexName(draft);
+    const dirty = draft.trim() !== saved.trim();
+    const canSave = canWrite && dirty && !problem && !busy;
+
+    const save = () => {
+        setBusy(true);
+        setSaveError('');
+        setJustSaved(false);
+        setUnconfirmed(false);
+        writeIndexName(draft)
+            .then((res) => {
+                apply(res);
+                setJustSaved(true);
+                setUnconfirmed(res.confirmed === false);
+            })
+            .catch((e) => {
+                const code = e && e.code;
+                setSaveError(
+                    code === 'INVALID' ? (e.message || 'That is not a valid index name.')
+                        : code === 'FORBIDDEN' ? 'Saving was refused. Your account cannot write this app\u2019s search macros.'
+                            : code === 'TIMEOUT' ? 'Saving timed out after 30 seconds. Reload to see whether it was written before trying again.'
+                                : 'The index name could not be saved. ' + ((e && e.message) || '')
+                );
+            })
+            .then(() => setBusy(false));
+    };
+
+    const body = () => {
+        if (state === 'loading') {
+            return <span style={{ fontSize: 13, color: PAL.text2 }}>Loading index name...</span>;
+        }
+        if (state === 'error') return <Notice warn>{err}</Notice>;
+        return (
+            <div>
+                <p style={{ margin: '0 0 12px', fontSize: 13, color: PAL.text2, lineHeight: 1.55 }}>
+                    Every search in KO History reads this index. Change it to point the app at
+                    an index you already have, or to match a naming policy.
+                </p>
+                <label style={{ ...S.fieldLbl }} htmlFor="ko-index-name">Index name</label>
+                <input
+                    id="ko-index-name"
+                    type="text"
+                    value={draft}
+                    disabled={!canWrite || busy}
+                    placeholder={KO_INDEX}
+                    spellCheck={false}
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    onChange={(e) => { setDraft(e.target.value); setJustSaved(false); setSaveError(''); }}
+                    style={{ ...S.ctrl, ...S.mono, maxWidth: 320,
+                        borderColor: problem && dirty ? PAL.warn : PAL.edge,
+                        opacity: canWrite ? 1 : 0.6 }}
+                />
+                {problem && dirty ? <Notice warn>{problem}</Notice> : null}
+                {!found ? (
+                    <Notice warn>
+                        The <code>{INDEX_MACRO}</code> macro does not exist. Until it is created,
+                        every search in the app fails to resolve it. Saving here creates it.
+                    </Notice>
+                ) : null}
+                <Notice warn>
+                    This changes where KO History <strong>reads</strong>. It does not change where
+                    the capture searches <strong>write</strong>: that is
+                    {' '}<code>action.summary_index._name</code> on each search, a saved-search
+                    setting that cannot use a macro. If you change the index here, update those
+                    searches to match, or capture keeps filling the old index while these
+                    dashboards read the new one and show nothing.
+                </Notice>
+                {!canWrite ? (
+                    <Notice>
+                        Read-only: your account cannot write this app's search macros. Ask a
+                        Splunk admin to change the index name.
+                    </Notice>
+                ) : null}
+                {saveError ? <Notice warn>{saveError}</Notice> : null}
+                {justSaved && !saveError ? (
+                    <Notice>
+                        {unconfirmed
+                            ? 'Saved, but the value could not be read back to confirm it. Reload to see what is on disk.'
+                            : 'Saved. Reload any open KO History dashboard for it to pick up the new index.'}
+                    </Notice>
+                ) : null}
+                <div style={{ marginTop: 14 }}>
+                    <HoverBtn
+                        base={{ ...S.btnBase, width: 'auto',
+                            background: canSave ? PAL.primaryBtn : PAL.panel2,
+                            color: canSave ? PAL.primaryBtnText : PAL.text3,
+                            cursor: canSave ? 'pointer' : 'default' }}
+                        hover={{ background: PAL.primaryBtnHover }}
+                        disabled={!canSave}
+                        title={!canWrite ? 'Your account cannot write this app\u2019s search macros.'
+                            : problem ? problem
+                                : !dirty ? 'The index name has not been changed.' : ''}
+                        onClick={save}>
+                        {busy ? 'Saving...' : 'Save index name'}
+                    </HoverBtn>
+                </div>
+            </div>
+        );
+    };
+
+    return (
+        <Section title="Index">
+            <div style={{ padding: '14px 16px 16px' }}>{body()}</div>
+        </Section>
     );
 }
 
@@ -183,6 +343,7 @@ export default function SettingsApp() {
                     Applies to every user of this app on this instance.
                 </p>
                 {body}
+                <IndexSection />
             </div>
         </div>
     );

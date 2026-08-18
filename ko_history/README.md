@@ -91,7 +91,27 @@ The **`ko_history` index** must exist before the capture searches start writing.
 
 ### Permissions
 
-`metadata/default.meta` grants read to all roles, write to `admin` / `sc_admin`. The custom vizs are exported `system`-wide so they appear in the viz picker of dashboards in any app; preview slots are always written into the `ko_history` app only. **Restore** and the live-preview write path require write on `data/ui/views` in `ko_history` for the acting user. **Do not broaden the `[views]` write stanza to additional roles.** Because all three vizs export as `system`, any role granted `[views]` write in this app gains a view create/overwrite primitive reachable from any dashboard fleet-wide, gated only by the client-side approval prompt, which is convenience, not security. If non-admin roles must use the preview or restore features, implement a constrained server-side endpoint (a custom REST handler that enforces per-user/per-slot limits) rather than expanding raw view-write permissions.
+`metadata/default.meta` restricts **both read and write to `admin` / `sc_admin`**, so the app is hidden from ordinary users by default. Two deliberate exceptions stay world-readable because they leak nothing and the app breaks without them: `ko_history.conf` (seven booleans the wrapper reads) and `[macros]` (the index name; every dashboard resolves it, so an admin-only macro would make the documented widen-access path produce a broken app). The custom vizs are exported `system`-wide so they appear in the viz picker of dashboards in any app; preview slots are always written into the `ko_history` app only. **Restore** and the live-preview write path require write on `data/ui/views` in `ko_history` for the acting user. **Do not broaden the `[views]` write stanza to additional roles.** Because all three vizs export as `system`, any role granted `[views]` write in this app gains a view create/overwrite primitive reachable from any dashboard fleet-wide, gated only by the client-side approval prompt, which is convenience, not security. If non-admin roles must use the preview or restore features, implement a constrained server-side endpoint (a custom REST handler that enforces per-user/per-slot limits) rather than expanding raw view-write permissions.
+
+### The index name
+
+The index the app reads from lives in one search macro, **`ko_history_index`**, which expands to
+the bare name (`ko_history` by default). Every search resolves it as ``index=`ko_history_index` ``,
+so changing the macro repoints every dashboard, the wrapper and the lookup builders at once.
+
+Change it from **Settings → Index** in the app, or on *Settings → Advanced search → Search macros*.
+
+**It governs reads, not writes.** Capture writes via `action.summary_index._name` on each saved
+search, which is a saved-search setting and cannot reference a macro. Change the macro alone and
+the dashboards read the new index while capture keeps filling the old one, which presents as an
+app that suddenly lost its data. After changing the name, update `action.summary_index._name` on
+every `ko_*_backup`, `ko_*_backfill`, `ko_*_catchup`, `ko_all_delete_audit` and `ko_usage_collector`
+search to match. `README/DEPLOY.md` has a query that checks the two halves agree.
+
+Whatever index you point at needs a long frozen period: the app stamps each event at the object's
+own `updated` time, so snapshots carry dates years in the past and Splunk's ~6-year default would
+freeze, meaning delete, the oldest history. This applies to Splunk Cloud too, where the bundled
+`indexes.conf` is ignored entirely.
 
 ### Excluding noisy hosts from the delete audit
 
@@ -129,6 +149,7 @@ Apache License 2.0. The full text ships with the app as `LICENSE`.
 
 | Version | Notes |
 |---------|-------|
+| 1.2.1   | **The index name is now configurable.** It lives in a single `ko_history_index` search macro that every search resolves, editable from the new **Settings → Index** section or from Splunk's macro editor, so the app can be pointed at an index you already have or one your naming policy requires. Note the macro governs where the app **reads**: capture targets `action.summary_index._name`, which cannot reference a macro, so repointing the capture searches stays a manual step and is documented. Also: `build.sh` now fails when webpack does not report success, because `npm run build` exits 0 when webpack is missing and the build would otherwise package a stale bundle and call it a success. |
 | 1.2.0   | **Restore is now opt-in and ships disabled.** A new admin **Settings** page in the app nav enables it per object type and writes `ko_history.conf`; the five untested types appear as greyed-out placeholders that conf cannot switch on. **Action required after upgrading: restore stays off until an admin enables it.** Also: Dashboards and Reports entries in the app nav, the Simple XML dashboard is labelled `KO Version (SXML)` so it is distinguishable from the Studio one, and the help page Overview tab is more compact. |
 | 1.1.2   | Dashboard Studio schema fixes: every help panel carried a `name` property, which is a dataSource field and not a visualization one, so Studio rejected all of them. Both dashboards moved to the `tabs` + `layoutDefinitions` layout form, the only one the current schema accepts. The help page is now four tabs (Overview, Operating, Troubleshooting, Architecture) instead of one very long scroll. Adds `app.manifest`. |
 | 1.1.1   | Source viewer: copy either side of a diff, not just the newer one, and long lines now wrap instead of being clipped (the wrapper's inline source view had no wrap mode at all). Restore scope stated explicitly: all seven object types are captured, previewed and compared, while one-click restore covers dashboards and saved searches. |

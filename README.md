@@ -15,8 +15,8 @@ have in Splunk:
 
 1. **Backup saved searches** run on a schedule, snapshot each recently-changed
    knowledge object via the REST API, and write one event per version into a
-   **summary index** (`ko_history`). The summary index becomes an append-only
-   *version log*.
+   **summary index** (`ko_history` by default, and the name is configurable).
+   The summary index becomes an append-only *version log*.
 2. **Audit saved searches** scrape the `_internal` access logs for DELETE and MOVE
    actions, recording *who* changed *what* and *when*.
 
@@ -36,6 +36,10 @@ All seven knowledge-object types are **captured, audited, and viewable**:
 
 One-click restore recovers a captured version back into Splunk as a real object,
 into the original app or any app you choose.
+
+It is the only operation that writes back into your environment, so it **ships
+turned off**. An admin enables it per object type on the app's Settings page.
+Capture, version history, preview and compare all work with restore disabled.
 
 - **Restore covers dashboards, reports and alerts** (reports and alerts are both
   saved searches).
@@ -66,11 +70,20 @@ dependencies on first run). On some environments, run as `NODE_OPTIONS= ./build.
 ## Splunk Cloud
 
 KO History is built to pass **Splunk Cloud AppInspect** (0 failures). On Splunk
-Cloud, create the `ko_history` index via ACS / the Cloud console before installing.
+Cloud, create the `ko_history` index via ACS / the Cloud console before installing,
+and give it a long retention period: snapshots are stamped at each object's own
+edit time, so an object last touched years ago is written with that old timestamp.
+
+Already have KO History data under a different index name, or need one to match a
+naming policy? The name every search reads lives in a single search macro,
+`ko_history_index`, editable from the app's Settings page or the macro editor.
+Note that the macro governs **reads**; capture writes via each search's
+`action.summary_index._name`, which cannot reference a macro, so both halves have
+to be pointed at the same index. `ko_history/README/DEPLOY.md` walks through it.
 
 ## Status
 
-Version **1.1.1**.
+Version **1.2.1**.
 
 ## License
 
