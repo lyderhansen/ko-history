@@ -87,14 +87,23 @@ for vd in "$VIZ_BASE"/*/; do
         [ -f "$stale" ] && rm -f "$stale"
     done
     # --- E6: always install from lockfile (npm ci) -----------------------
+    #
+    # NODE_OPTIONS is cleared on every node/npm invocation here, exactly as the
+    # page build below already did. An inherited NODE_OPTIONS carrying
+    # --require=<path> aborts npm the moment that path stops existing, which is
+    # normal for a preload script living in a temp directory: the build then dies
+    # with MODULE_NOT_FOUND from internal/preload and a node stack trace, naming
+    # a file that has nothing to do with this app. Clearing it in one place and
+    # not the other is how that arrived as a mystery viz-build failure while the
+    # page build carried on working.
     echo "[viz: $VIZ_NAME] Installing npm dependencies (npm ci)..."
     if [ -f "$vd/package-lock.json" ]; then
-        (cd "$vd" && npm ci --silent)
+        (cd "$vd" && NODE_OPTIONS= npm ci --silent)
     else
-        (cd "$vd" && npm install --silent)
+        (cd "$vd" && NODE_OPTIONS= npm install --silent)
     fi
     echo "[viz: $VIZ_NAME] Building webpack bundle..."
-    _viz_out=$( (cd "$vd" && npm run build --silent) 2>&1 ) || { echo "$_viz_out"; exit 1; }
+    _viz_out=$( (cd "$vd" && NODE_OPTIONS= npm run build --silent) 2>&1 ) || { echo "$_viz_out"; exit 1; }
     echo "$_viz_out"
     assert_compiled "viz: $VIZ_NAME" "$_viz_out"
 done

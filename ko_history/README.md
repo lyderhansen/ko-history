@@ -17,7 +17,7 @@ A dashboard disappears, a critical alert gets overwritten, a report is lost, and
 
 | Path | Purpose |
 |------|---------|
-| `default/savedsearches.conf` | 25 stanzas: 7 type backups, 7 daily catch-ups, 1 combined delete-audit, 2 lookup builders, 1 usage collector, 7 one-time backfills, all feeding `index=ko_history`. All ship disabled. |
+| `default/savedsearches.conf` | 15 stanzas: 7 type backups, 1 combined delete-audit, 7 one-time backfills, all feeding the index named by the `ko_history_index` macro. All ship disabled. |
 | `default/data/ui/views/` | The dashboards: `wrapper.xml` (React page host), `ko_version.xml`, `ko_version_ds.xml`, `ko_help.xml`. |
 | `appserver/static/visualizations/` | Three bundled custom vizs (see below). |
 | `appserver/static/pages/wrapper.js` + `appserver/templates/wrapper.html` | The React app page (`@splunk/react-page`). |
@@ -25,11 +25,11 @@ A dashboard disappears, a critical alert gets overwritten, a report is lost, and
 | `default/visualizations.conf` | Registers the three custom vizs. |
 | `metadata/default.meta` | ACL (read: \*, write: admin/sc\_admin; vizs exported system-wide). |
 
-### The scheduled searches (25 stanzas)
+### The scheduled searches (17 stanzas)
 
 **ALL capture searches ship `disabled = 1`. Enable them after creating the index.**
 
-Seven **backup** searches run on a staggered 15-minute cron (`realtime_schedule = 0`, `schedule_window = auto`) and write one event per object changed in the last 15 min (`_time` = the object's `updated` timestamp). One **combined delete-audit** runs hourly and captures DELETE/MOVE from `_internal` for all KO types. A **lookup builder** and **usage collector** are optional; see *Usage statistics* below. Seven **one-time backfill** searches are included for initial onboarding. Run each manually once, then leave disabled.
+Seven **backup** searches run on a staggered 15-minute cron (`realtime_schedule = 0`, `schedule_window = auto`) and write one event per object changed in the last 15 min (`_time` = the object's `updated` timestamp). One **combined delete-audit** runs hourly and captures DELETE/MOVE from `_internal` for all KO types. Seven **one-time backfill** searches are included for initial onboarding. Run each manually once, then leave disabled.
 
 **Backups (15-min window)**
 
@@ -48,13 +48,6 @@ Seven **backup** searches run on a staggered 15-minute cron (`realtime_schedule 
 | Search name | Cron |
 |---|---|
 | `ko_all_delete_audit` | `23 * * * *` |
-
-**Optional usage stats (daily). Enable both together, or neither.** They populate the access and run counts shown in the KO tables.
-
-| Search name | Cron | Purpose |
-|---|---|---|
-| `ko_tracked_kos_lookup_builder` | `0 1 * * *` | Builds membership lookup used by the collector |
-| `ko_usage_collector` | `30 1 * * *` | Captures per-KO access/run counts |
 
 **One-time backfills (run manually once; never schedule)**
 
@@ -84,7 +77,7 @@ The **`ko_history` index** must exist before the capture searches start writing.
 
 1. Install the tarball (Manage Apps → Install app from file) or drop `ko_history/` into `$SPLUNK_HOME/etc/apps/`.
 2. **`splunk restart`**: a full restart is required (the React page is served from a Mako template + static bundle that a reload won't refresh).
-3. Enable the capture searches. The **Reports** entry in the app nav lists them already scoped to KO History; **Settings → Searches, reports, and alerts** works too. All ship disabled. Enable `ko_views_xml_backup` through `ko_tags_backup` and `ko_all_delete_audit` after the `ko_history` index exists. See *Scheduled searches* above for the full list.
+3. Enable the capture searches. The app's own **Settings → Searches** section lists every shipped search grouped by what it does, with a switch on each; Splunk's **Settings → Searches, reports, and alerts** works too. All ship disabled. Enable `ko_views_xml_backup` through `ko_tags_backup` and `ko_all_delete_audit` after the `ko_history` index exists. See *Scheduled searches* above for the full list.
 4. Wait one cron cycle (~15 min), then open **Apps → KO History**.
 
 ## Configuration
@@ -105,7 +98,7 @@ Change it from **Settings → Index** in the app, or on *Settings → Advanced s
 search, which is a saved-search setting and cannot reference a macro. Change the macro alone and
 the dashboards read the new index while capture keeps filling the old one, which presents as an
 app that suddenly lost its data. After changing the name, update `action.summary_index._name` on
-every `ko_*_backup`, `ko_*_backfill`, `ko_*_catchup`, `ko_all_delete_audit` and `ko_usage_collector`
+every `ko_*_backup`, `ko_*_backfill` and `ko_all_delete_audit`
 search to match. `README/DEPLOY.md` has a query that checks the two halves agree.
 
 Whatever index you point at needs a long frozen period: the app stamps each event at the object's
@@ -117,9 +110,11 @@ freeze, meaning delete, the oldest history. This applies to Splunk Cloud too, wh
 
 If a search head queries itself via REST and that shows up as DELETE noise, edit the relevant `*_delete_audit` search and append `NOT host=<your-sh>` to each union leg.
 
-### Usage statistics enrichment (optional)
+### Usage statistics
 
-The original dashboard joined `index=ko_history` with a `Splunk Housekeeping - KO - Dashboards Usage - Statistics Collector` summary for `access_count`/`users`. That collector is **not bundled**. Source or stub it and union it into the base search if you want it.
+Not shipped. The app previously included a collector pair feeding a statistics dashboard; the dashboard was cut before release, which left the collectors writing `source=ko_usage` events that every shipped search then filtered out. Both were removed in 1.3.0.
+
+The dashboard searches still carry `NOT source="ko_usage"` on purpose, so an index that already holds those events from an earlier version does not show them as junk rows.
 
 ## How it works
 
@@ -149,6 +144,7 @@ Apache License 2.0. The full text ships with the app as `LICENSE`.
 
 | Version | Notes |
 |---------|-------|
+| 1.3.0   | **The capture searches are enabled from inside the app.** A new **Settings → Searches** section lists all 17 shipped searches grouped by what they do, with a switch on each, so turning capture on no longer means finding them among every search on the instance. Backfills deliberately get a link to their report instead of a switch: they are one-shot, and re-running one duplicates every snapshot it already wrote. **Breaking: the seven `ko_*_catchup` searches and `ko_seen_kos_builder` are removed**, with the `ko_seen_kos` lookup, because they had never been executed and shipping untested scheduled machinery that fails closed and silently is worse than shipping without it. The gap they were meant to close (a knowledge object that arrives *already old* is invisible to the 15-minute capture window) is described in the deployment guide instead. If you enabled one on 1.2.1, its `local/` stanza survives the upgrade and does nothing; delete it at your leisure. **Also removed: `ko_usage_collector` and `ko_tracked_kos_lookup_builder`**, with the `ko_tracked_kos` lookup and `transforms.conf`. The statistics dashboard they fed was cut before release, which left them writing `source=ko_usage` events that every shipped search then excluded. Those exclusions stay in place, so an index still holding such events from an earlier version does not show them as knowledge objects. |
 | 1.2.1   | **The index name is now configurable.** It lives in a single `ko_history_index` search macro that every search resolves, editable from the new **Settings → Index** section or from Splunk's macro editor, so the app can be pointed at an index you already have or one your naming policy requires. Note the macro governs where the app **reads**: capture targets `action.summary_index._name`, which cannot reference a macro, so repointing the capture searches stays a manual step and is documented. Also: `build.sh` now fails when webpack does not report success, because `npm run build` exits 0 when webpack is missing and the build would otherwise package a stale bundle and call it a success. |
 | 1.2.0   | **Restore is now opt-in and ships disabled.** A new admin **Settings** page in the app nav enables it per object type and writes `ko_history.conf`; the five untested types appear as greyed-out placeholders that conf cannot switch on. **Action required after upgrading: restore stays off until an admin enables it.** Also: Dashboards and Reports entries in the app nav, the Simple XML dashboard is labelled `KO Version (SXML)` so it is distinguishable from the Studio one, and the help page Overview tab is more compact. |
 | 1.1.2   | Dashboard Studio schema fixes: every help panel carried a `name` property, which is a dataSource field and not a visualization one, so Studio rejected all of them. Both dashboards moved to the `tabs` + `layoutDefinitions` layout form, the only one the current schema accepts. The help page is now four tabs (Overview, Operating, Troubleshooting, Architecture) instead of one very long scroll. Adds `app.manifest`. |

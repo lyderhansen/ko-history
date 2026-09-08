@@ -50,8 +50,11 @@ Capture, version history, preview and compare all work with restore disabled.
 ## Install & deploy
 
 Deployment is three steps: **create the index → install the app → enable the
-searches**. See [`ko_history/README/DEPLOY.md`](ko_history/README/DEPLOY.md) for the
-full guide (including Splunk Cloud index creation via ACS).
+searches**. The app's own **Settings** page lists every shipped search grouped by
+what it does, with a switch on each, so the last step does not mean hunting through
+every saved search on the instance. See
+[`ko_history/README/DEPLOY.md`](ko_history/README/DEPLOY.md) for the full guide
+(including Splunk Cloud index creation via ACS).
 
 A ready-to-install package is produced under `dist/` (see *Build* below), or grab the
 release tarball.
@@ -69,7 +72,9 @@ dependencies on first run). On some environments, run as `NODE_OPTIONS= ./build.
 
 ## Splunk Cloud
 
-KO History is built to pass **Splunk Cloud AppInspect** (0 failures). On Splunk
+KO History passes **Splunk Cloud AppInspect** vetting: 252 checks, 0 errors and
+0 failures on the full profile. The three remaining warnings are non-blocking, and
+two of them match Splunk's own bundled JavaScript rather than this app's code. On Splunk
 Cloud, create the `ko_history` index via ACS / the Cloud console before installing,
 and give it a long retention period: snapshots are stamped at each object's own
 edit time, so an object last touched years ago is written with that old timestamp.
@@ -83,7 +88,7 @@ to be pointed at the same index. `ko_history/README/DEPLOY.md` walks through it.
 
 ## Status
 
-Version **1.2.1**.
+Version **1.3.0**.
 
 ## License
 

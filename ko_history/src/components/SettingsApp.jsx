@@ -18,7 +18,8 @@ import React from 'react';
 import { ALL_CLASSES, isAvailableClass } from '../util/koClass';
 import { serializeSettings } from '../util/restoreSettings';
 import { readRestoreSettings, writeRestoreSettings, readIndexName, writeIndexName,
-    validateIndexName, KO_INDEX, INDEX_MACRO } from '../util/splunkRest';
+    validateIndexName, KO_INDEX, INDEX_MACRO,
+    readAppSearches, setSearchEnabled, savedSearchRunUrl } from '../util/splunkRest';
 import { HoverBtn, Notice, kitStyles, PAL } from './PanelKit';
 
 const S = kitStyles();
@@ -244,6 +245,229 @@ function IndexSection() {
     );
 }
 
+/* ── Searches ────────────────────────────────────────────────────────────────
+ *
+ * Every capture search ships disabled, so on a fresh install this section is
+ * the setup step, and it exists so that step does not require leaving the app
+ * for Splunk's report manager and picking the app's searches out of a list of
+ * everything on the instance.
+ *
+ * Its own component with its own load/save state, for the same reason
+ * IndexSection is: these read from a different endpoint than the restore
+ * settings and either can fail alone. A refused saved-search list must not
+ * blank the restore controls.
+ *
+ * BACKFILLS GET NO SWITCH. They are one-shot by design: DEPLOY.md says run each
+ * once, and re-running one duplicates every snapshot it already wrote, which is
+ * permanent and indistinguishable from real edits. A switch here would present
+ * "schedule this forever" as the obvious action, so the row links to the report
+ * instead and says what to do there.
+ */
+
+const FAMILY = [
+    { id: 'backup', title: 'Capture', blurb:
+        'One per knowledge-object type. Each snapshots what changed in the last 15 minutes. ' +
+        'These are what build the version history: with none enabled, the app has nothing to show.' },
+    { id: 'audit', title: 'Delete and move audit', blurb:
+        'Reads the _internal access logs hourly so a deleted object still leaves a trail, ' +
+        'and records who did it. Nothing else captures deletions.' },
+    { id: 'backfill', title: 'Backfill', blurb:
+        'Run each ONCE, by hand, to seed a snapshot of what already exists. Not scheduled, ' +
+        'and no switch here on purpose: re-running one duplicates every snapshot it wrote.' },
+    { id: 'other', title: 'Other searches in this app', blurb:
+        'Not shipped with KO History. Listed so this stays a complete inventory of the app.' },
+];
+
+function SearchRow({ s, busy, onToggle }) {
+    const [hover, setHover] = React.useState(false);
+    const locked = !s.canWrite || busy;
+
+    // Backfills: a link, never a switch. See the note above the section.
+    if (s.family === 'backfill') {
+        return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px',
+                borderTop: `1px solid ${PAL.edgeSoft}` }}>
+                <span style={{ flex: '1 1 auto', fontSize: 13, color: PAL.text, ...S.mono }}>
+                    {s.name}
+                </span>
+                <a href={savedSearchRunUrl('ko_history', s.name)} target="_blank" rel="noopener noreferrer"
+                    style={{ fontSize: 12, color: PAL.accent, textDecoration: 'none',
+                        whiteSpace: 'nowrap', flex: '0 0 auto' }}>
+                    Open in Search &#8599;
+                </a>
+            </div>
+        );
+    }
+
+    return (
+        <label
+            onMouseEnter={() => setHover(true)}
+            onMouseLeave={() => setHover(false)}
+            style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px',
+                borderTop: `1px solid ${PAL.edgeSoft}`, cursor: locked ? 'default' : 'pointer',
+                background: hover && !locked ? PAL.panel2 : 'transparent',
+                transition: 'background .12s' }}>
+            <input
+                type="checkbox"
+                checked={!s.disabled}
+                disabled={locked}
+                onChange={() => onToggle(s)}
+                style={{ width: 15, height: 15, flex: '0 0 auto', accentColor: PAL.accent,
+                    cursor: locked ? 'default' : 'pointer' }}
+            />
+            <span style={{ flex: '1 1 auto', fontSize: 13, color: PAL.text, ...S.mono }}>
+                {s.name}
+            </span>
+            {s.cron ? (
+                <span style={{ fontSize: 11, color: PAL.text3, whiteSpace: 'nowrap',
+                    flex: '0 0 auto', ...S.mono }}>
+                    {s.cron}
+                </span>
+            ) : null}
+            {!s.disabled && <Pill>Enabled</Pill>}
+        </label>
+    );
+}
+
+function SearchesSection() {
+    const [state, setState] = React.useState('loading');   // loading | ready | error
+    const [err, setErr] = React.useState('');
+    const [rows, setRows] = React.useState([]);
+    const [canWrite, setCanWrite] = React.useState(false);
+    const [busyName, setBusyName] = React.useState('');
+    const [rowError, setRowError] = React.useState('');
+    const [unconfirmed, setUnconfirmed] = React.useState(false);
+
+    const apply = React.useCallback((res) => {
+        if (res.searches) {
+            setRows(res.searches);
+            setCanWrite(!!res.canWrite);
+        }
+        setState('ready');
+    }, []);
+
+    React.useEffect(() => {
+        let live = true;
+        readAppSearches()
+            .then((res) => { if (live) apply(res); })
+            .catch((e) => {
+                if (!live) return;
+                const code = e && e.code;
+                setErr(code === 'FORBIDDEN'
+                    ? 'Your account is not allowed to list this app’s saved searches.'
+                    : code === 'TIMEOUT'
+                        ? 'The search list did not load within 30 seconds. Reload to try again.'
+                        : 'The app’s saved searches could not be read.');
+                setState('error');
+            });
+        return () => { live = false; };
+    }, [apply]);
+
+    const toggle = (s) => {
+        setBusyName(s.name);
+        setRowError('');
+        setUnconfirmed(false);
+        setSearchEnabled(s.name, s.disabled)          // s.disabled true -> turning ON
+            .then((res) => {
+                apply(res);
+                if (res.confirmed === false) {
+                    setUnconfirmed(true);
+                    // Nothing was read back, so reflect the change we asked for
+                    // rather than leaving the switch showing the old state.
+                    setRows((prev) => prev.map((r) =>
+                        r.name === s.name ? Object.assign({}, r, { disabled: !s.disabled }) : r));
+                }
+            })
+            .catch((e) => {
+                const code = e && e.code;
+                setRowError(
+                    code === 'FORBIDDEN' ? 'Refused: your account cannot change ' + s.name + '.'
+                        : code === 'NOT_FOUND' ? s.name + ' no longer exists. Reload the page.'
+                            : code === 'TIMEOUT' ? 'Timed out changing ' + s.name +
+                                '. Reload to see whether it took effect before trying again.'
+                                : 'Could not change ' + s.name + '. ' + ((e && e.message) || '')
+                );
+            })
+            .then(() => setBusyName(''));
+    };
+
+    const body = () => {
+        if (state === 'loading') {
+            return <div style={{ padding: '14px 16px 16px' }}>
+                <span style={{ fontSize: 13, color: PAL.text2 }}>Loading searches...</span>
+            </div>;
+        }
+        if (state === 'error') {
+            return <div style={{ padding: '14px 16px 16px' }}><Notice warn>{err}</Notice></div>;
+        }
+
+        const enabled = rows.filter((r) => !r.disabled && r.family !== 'backfill').length;
+        const capture = rows.filter((r) => r.family === 'backup');
+        const noCapture = capture.length > 0 && capture.every((r) => r.disabled);
+
+        return (
+            <div>
+                <div style={{ padding: '14px 16px 4px' }}>
+                    <p style={{ margin: '0 0 12px', fontSize: 13, color: PAL.text2, lineHeight: 1.55 }}>
+                        Every search KO History ships, and whether it is running. They all ship
+                        disabled; nothing is captured until you enable them here.
+                    </p>
+                    {noCapture ? (
+                        <Notice warn>
+                            No capture search is enabled, so nothing is being recorded. Enable the
+                            seven under <strong>Capture</strong> and the delete and move audit to
+                            start building version history.
+                        </Notice>
+                    ) : null}
+                    {!canWrite ? (
+                        <Notice>
+                            Read-only: your account cannot change this app&#8217;s saved searches.
+                            Ask a Splunk admin to enable them.
+                        </Notice>
+                    ) : null}
+                    {rowError ? <Notice warn>{rowError}</Notice> : null}
+                    {unconfirmed ? (
+                        <Notice>
+                            Changed, but the list could not be read back to confirm it. Reload to
+                            see what is on disk.
+                        </Notice>
+                    ) : null}
+                </div>
+
+                {FAMILY.map((f) => {
+                    const group = rows.filter((r) => r.family === f.id);
+                    if (!group.length) return null;
+                    return (
+                        <div key={f.id} style={{ marginTop: 10 }}>
+                            <div style={{ padding: '8px 16px 6px' }}>
+                                <div style={{ fontSize: 12, fontWeight: 600, color: PAL.text }}>
+                                    {f.title}
+                                </div>
+                                <div style={{ fontSize: 12, color: PAL.text3, lineHeight: 1.5,
+                                    marginTop: 2 }}>
+                                    {f.blurb}
+                                </div>
+                            </div>
+                            {group.map((s) => (
+                                <SearchRow key={s.name} s={s} busy={busyName === s.name}
+                                    onToggle={toggle} />
+                            ))}
+                        </div>
+                    );
+                })}
+
+                <div style={{ padding: '12px 16px 16px', borderTop: `1px solid ${PAL.edgeSoft}`,
+                    marginTop: 10, fontSize: 12, color: PAL.text3 }}>
+                    {enabled} of {rows.filter((r) => r.family !== 'backfill').length} scheduled
+                    {' '}searches enabled.
+                </div>
+            </div>
+        );
+    };
+
+    return <Section title="Searches">{body()}</Section>;
+}
+
 export default function SettingsApp() {
     // 'loading' | 'ready' | 'error'
     const [state, setState] = React.useState('loading');
@@ -344,6 +568,7 @@ export default function SettingsApp() {
                 </p>
                 {body}
                 <IndexSection />
+                <SearchesSection />
             </div>
         </div>
     );

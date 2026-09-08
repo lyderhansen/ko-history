@@ -531,6 +531,21 @@ export function savedSearchUrl(appName, name) {
         encodeURIComponent(name) + '?action=edit&ns=' + encodeURIComponent(appName);
 }
 
+// Open a saved search in the SEARCH view, with its SPL loaded and editable.
+//
+// Not the manager's edit form (savedSearchUrl above), which shows the search in
+// a settings dialog. This is what the backfill rows link to, and the difference
+// matters for that job: a backfill has to be read before it is run, and its
+// `| collect` line uncommented by hand, which is a thing you do looking at SPL
+// in a search bar rather than in a config form.
+//
+// The `s` parameter takes the saved search's REST path, URL-encoded whole.
+export function savedSearchRunUrl(appName, name) {
+    const ref = '/servicesNS/nobody/' + appName + '/saved/searches/' + name;
+    return '/' + locale() + '/app/' + encodeURIComponent(appName) +
+        '/search?s=' + encodeURIComponent(ref);
+}
+
 // List installed apps (id + label) for the restore target picker.
 export function listApps() {
     return oneshot('| rest /services/apps/local | table title label')
@@ -799,5 +814,131 @@ export function writeIndexName(name) {
             return readIndexName()
                 .then((res) => Object.assign({ confirmed: true }, res))
                 .catch(() => ({ found: true, name: clean, canWrite: true, confirmed: false }));
+        });
+}
+
+/* ── The app's own saved searches ────────────────────────────────────────────
+ *
+ * Backing the Settings page's Searches section, which exists so an admin can
+ * turn capture on without leaving the app. Everything ships disabled, so on a
+ * fresh install this list IS the setup step.
+ *
+ * Scoped to searches that live in THIS app. /servicesNS/-/ko_history/... also
+ * returns every search another app exports globally, which on a real instance
+ * is hundreds of rows and none of them ours to switch. The `search=` filter
+ * narrows server-side and the acl.app check below is the belt to its braces:
+ * the filter is a text match, so a globally-exported search named ko_* in some
+ * other app would slip through it.
+ */
+const APP_SEARCH_COLLECTION = '/servicesNS/nobody/' + PREVIEW_APP + '/saved/searches';
+
+/* Which family a search belongs to, from its name alone.
+ *
+ * Derived, never a hardcoded list of the seventeen. Adding an eighth KO type
+ * means adding ko_<type>_backup and ko_<type>_backfill to savedsearches.conf,
+ * and this has to place them without a second edit here -- a UI that silently
+ * omitted a new capture search would be worse than no UI, because the setup
+ * step it exists to drive would look complete.
+ *
+ * Anything unrecognised lands in 'other' rather than being dropped, so a search
+ * an admin added to the app still appears. The section is an inventory first
+ * and a control panel second.
+ */
+export function searchFamily(name) {
+    const n = String(name || '');
+    if (/_backfill$/.test(n)) return 'backfill';
+    if (/_backup$/.test(n)) return 'backup';
+    if (/delete_audit$/.test(n)) return 'audit';
+    return 'other';
+}
+
+/* Read every saved search in this app, with its enabled state.
+ *
+ * Returns { searches: [{name, disabled, scheduled, cron, canWrite, family}], canWrite }.
+ * The top-level canWrite is true when ANY row is writable: it drives the
+ * section's read-only banner, and a role that can write some but not all would
+ * otherwise see a banner contradicting its own working switches.
+ */
+export function readAppSearches() {
+    const url = rawUrl(APP_SEARCH_COLLECTION)
+        + '?output_mode=json&count=0'
+        + '&f=disabled&f=cron_schedule&f=is_scheduled&f=eai%3Aacl'
+        + '&search=' + encodeURIComponent('eai:acl.app=' + PREVIEW_APP);
+    return fetchSettings(url, { method: 'GET' })
+        .then((resp) => {
+            if (!resp.ok) {
+                return resp.text().then((tx) => {
+                    const err = new Error('saved-search list HTTP ' + resp.status + ' ' + tx.slice(0, 200));
+                    err.code = resp.status === 403 ? 'FORBIDDEN' : 'READ_FAILED';
+                    return Promise.reject(err);
+                });
+            }
+            return resp.text().then((tx) => {
+                let body;
+                try {
+                    body = JSON.parse(tx);
+                } catch (e) {
+                    const err = new Error('saved-search list returned a non-JSON body');
+                    err.code = 'READ_FAILED';
+                    return Promise.reject(err);
+                }
+                const entries = (body && body.entry) || [];
+                const searches = entries
+                    .filter((e) => {
+                        const acl = e.acl || {};
+                        return acl.app === PREVIEW_APP;
+                    })
+                    .map((e) => {
+                        const c = e.content || {};
+                        const acl = e.acl || {};
+                        // `disabled` comes back as a JSON boolean on some builds
+                        // and the string "0"/"1" on others. Compare loosely on
+                        // purpose: a strict === against either shape reports
+                        // every search as enabled on the other one.
+                        const off = c.disabled === true || c.disabled === 1 || c.disabled === '1';
+                        return {
+                            name: e.name,
+                            disabled: off,
+                            scheduled: c.is_scheduled === true || c.is_scheduled === 1 || c.is_scheduled === '1',
+                            cron: String(c.cron_schedule || ''),
+                            canWrite: !!acl.can_write,
+                            family: searchFamily(e.name),
+                        };
+                    })
+                    .sort((a, b) => a.name.localeCompare(b.name));
+                return { searches, canWrite: searches.some((s) => s.canWrite) };
+            });
+        });
+}
+
+/* Enable or disable one saved search.
+ *
+ * POSTs `disabled` to the entity rather than hitting the /enable and /disable
+ * action endpoints, because the entity write is the one that creates the
+ * local/ override this needs: the stanzas ship in default/, and an install
+ * whose only change is "the admin switched capture on" must survive an upgrade
+ * replacing default/.
+ *
+ * Re-reads the whole collection on success rather than trusting the write, so
+ * the caller renders what Splunk actually holds. A write that lands while the
+ * confirming read fails resolves with confirmed:false: the change IS on disk,
+ * and reporting that as a failure would tell the admin the opposite of the
+ * truth and invite a second click.
+ */
+export function setSearchEnabled(name, enabled) {
+    const url = rawUrl(APP_SEARCH_COLLECTION + '/' + encodeURIComponent(name)) + '?output_mode=json';
+    return fetchSettings(url, { method: 'POST', body: encodeForm({ disabled: enabled ? '0' : '1' }) })
+        .then((resp) => {
+            if (!resp.ok) {
+                return resp.text().then((tx) => {
+                    const err = new Error('saved-search write HTTP ' + resp.status + ' ' + tx.slice(0, 200));
+                    err.code = resp.status === 403 ? 'FORBIDDEN'
+                        : resp.status === 404 ? 'NOT_FOUND' : 'WRITE_FAILED';
+                    return Promise.reject(err);
+                });
+            }
+            return readAppSearches()
+                .then((res) => Object.assign({ confirmed: true }, res))
+                .catch(() => ({ searches: null, canWrite: true, confirmed: false }));
         });
 }

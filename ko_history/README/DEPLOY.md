@@ -47,8 +47,9 @@ missed restart shows up as a readable message rather than a stack trace.
 ## 3. Enable the scheduled searches
 
 The capture saved searches ship **disabled**. Enable the per-type backup and the combined
-delete-audit searches. The **Reports** entry in the app nav lists them already scoped
-to KO History; **Settings → Searches, reports, and alerts** works too.
+delete-audit searches. The app's own **Settings** page lists every shipped search grouped
+by what it does, with a switch on each; Splunk's **Settings → Searches, reports, and
+alerts** works too.
 Optionally run each one-time `*_backfill` search **once** to seed a snapshot of existing KOs
 (they are disabled by default and must not be scheduled: re-running duplicates snapshots).
 
@@ -57,43 +58,16 @@ REST every 15 minutes. On large search heads with thousands of KOs per type, eac
 returns thousands of rows. It is cheap (local REST, no index scan), but budget for it in
 your scheduler load and summary index ingest rate.
 
-**Catch-up (recommended):** the backup searches only capture a KO edited in the last
-15 minutes, so a KO that arrives *already old* is invisible to them forever. That happens
-whenever an app is installed after onboarding, and whenever an edit lands while the
-scheduler is stopped. Enable **`ko_seen_kos_builder`** and the seven **`ko_*_catchup`**
-searches to close that gap automatically: the builder rebuilds a lookup of everything ever
-captured, and each catch-up captures whatever is missing from it, once.
+**A known gap: KOs that arrive already old.** The backup searches only capture a KO
+edited in the last 15 minutes, so a KO that appears on the instance *already old* is
+invisible to them. That happens whenever an app is installed after onboarding, and
+whenever an edit lands while the scheduler is stopped. Running the `*_backfill` searches
+covers everything present at that moment; anything arriving old afterwards is missed
+until someone edits it.
 
-Enable the builder first. The catch-ups refuse to run against an empty lookup, because an
-empty lookup means "nothing has ever been captured" and they would otherwise re-capture the
-whole instance and duplicate the backfill. Enabling the builder first is the only ordering
-requirement; it runs at 01:05 and the catch-ups from 02:20.
-
-They also refuse to run against a **stale** lookup, meaning one not rebuilt in the last 26
-hours. A lookup that is merely out of date still passes a non-empty test, while everything
-captured since the last successful rebuild is missing from it and therefore looks as though
-it has never been seen, so it gets captured again, nightly, for as long as the builder stays
-broken. Both checks fail closed on purpose: a skipped catch-up corrects itself on the next
-run, whereas a duplicate version is permanent and indistinguishable from a real edit.
-
-The practical consequence is that **if `ko_seen_kos_builder` stops running, the catch-ups stop
-too, silently and by design.** If catch-up captures dry up, check that search first. Watch it
-with:
-
-```
-| inputlookup ko_seen_kos | stats count as tracked_kos max(built) as built
-| eval age_hours=round((now()-built)/3600,1), rebuilt=strftime(built,"%F %T")
-| table tracked_kos rebuilt age_hours
-```
-
-`age_hours` above 26 means the catch-ups are currently blocked. A lookup written by a version
-before 1.2.0 has no `built` column at all, which reads as stale and blocks them until the
-builder runs once, which is the safe direction to fail.
-
-**Optional, usage statistics:** `ko_tracked_kos_lookup_builder` and
-`ko_usage_collector` are both disabled by default and work as a pair, so enable both together
-(or neither). They capture daily per-KO access and run counts and feed the statistics
-dashboard; enabling only one is harmless but produces no useful data.
+Re-running a backfill closes the gap again, but it duplicates every snapshot it already
+wrote, so it is a deliberate choice rather than routine maintenance. Closing this gap
+automatically is planned for a later release.
 
 ## 4. Enable restore (optional)
 
@@ -165,7 +139,7 @@ So change it in one of these two ways:
   searches together.
 - **By hand.** Edit the macro on *Settings > Advanced search > Search macros*,
   then edit `action.summary_index._name` on every `ko_*_backup`, `ko_*_backfill`,
-  `ko_*_catchup` and `ko_all_delete_audit` search to match.
+  and `ko_all_delete_audit` search to match.
 
 **Retention still matters.** Whatever index you point at needs a long frozen
 period. The bundled `indexes.conf` sets 20 years on `ko_history` for a reason: the
@@ -180,7 +154,7 @@ you created there.
 
 **Settings** has an **Index** section that writes the `ko_history_index` macro for you,
 which is the read side. It deliberately does **not** touch the capture searches, because
-`action.summary_index._name` cannot reference a macro and repointing 23 searches silently
+`action.summary_index._name` cannot reference a macro and repointing 16 searches silently
 on someone's behalf is not a thing a settings page should do without being asked.
 
 So the two halves are split by design:
@@ -191,7 +165,7 @@ So the two halves are split by design:
 | Write | `action.summary_index._name` on each capture search | You |
 
 After changing the index name, edit `action.summary_index._name` on every `ko_*_backup`,
-`ko_*_backfill`, `ko_*_catchup`, `ko_all_delete_audit` and `ko_usage_collector` search to
+`ko_*_backfill` and `ko_all_delete_audit` search to
 match. Until you do, capture keeps writing to the old index while the dashboards read the
 new one, which looks like an app that suddenly lost all its data.
 
