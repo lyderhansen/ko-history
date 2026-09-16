@@ -2,6 +2,8 @@
 
 **Automatic versioning and recovery for Splunk knowledge objects.**
 
+**[Get it on Splunkbase](https://splunkbase.splunk.com/app/9773)**
+
 Every Splunk admin has been there: a dashboard disappears, a critical alert gets
 overwritten, or a report is lost, with no way back. KO History is a lightweight
 Splunk app that automatically captures and versions your user-generated knowledge
@@ -49,6 +51,8 @@ Capture, version history, preview and compare all work with restore disabled.
 
 ## Install & deploy
 
+**Install from [Splunkbase](https://splunkbase.splunk.com/app/9773)**, or from a release tarball below.
+
 Deployment is three steps: **create the index → install the app → enable the
 searches**. The app's own **Settings** page lists every shipped search grouped by
 what it does, with a switch on each, so the last step does not mean hunting through
@@ -56,8 +60,9 @@ every saved search on the instance. See
 [`ko_history/README/DEPLOY.md`](ko_history/README/DEPLOY.md) for the full guide
 (including Splunk Cloud index creation via ACS).
 
-A ready-to-install package is produced under `dist/` (see *Build* below), or grab the
-release tarball.
+Splunkbase is the easiest route and notifies you of updates. A ready-to-install package
+is also produced under `dist/` (see *Build* below), and every GitHub release carries the
+same tarball.
 
 ## Build from source
 
